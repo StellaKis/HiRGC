@@ -32,12 +32,26 @@ FastaData read_fasta(const std::string& filename) {
     return data;
 }
 
+std::string join_sequences(const std::vector<std::string>& sequences) {
+    std::string result;
+
+    for (const auto& seq : sequences) {
+        result += seq;
+    }
+
+    return result;
+}
+
 int main() {
     try {
         FastaData fasta = read_fasta("genomic.fna");
 
         std::cout << "ID: " << fasta.id << std::endl;
         std::cout << "Broj linija sekvence: " << fasta.sequences.size() << std::endl;
+
+        std::string genome = join_sequences(fasta.sequences);
+
+        std::cout << "Duljina sekvence: " << genome.size() << std::endl;
 
     } catch (const std::exception& e) {
         std::cout << e.what() << std::endl;

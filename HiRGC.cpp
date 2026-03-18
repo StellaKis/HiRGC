@@ -2,24 +2,27 @@
 #include <fstream>
 #include <vector>
 #include <string>
+#include <cctype>
+
+using namespace std;
 
 struct FastaData {
-    std::string id;
-    std::vector<std::string> sequences;
-    std::vector<size_t> seq_len;
+    string id;
+    vector<string> sequences;
+    vector<size_t> seq_len;
 };
 
-FastaData read_fasta(const std::string& filename) {
-    std::ifstream file(filename);
+FastaData read_fasta(const string& filename) {
+    ifstream file(filename);
     
     if (!file.is_open()) {
-        throw std::runtime_error("Unable to open file");
+        throw runtime_error("Unable to open file");
     }
 
     FastaData data;
-    std::string line;
+    string line;
 
-    while (std::getline(file, line)) {
+    while (getline(file, line)) {
         if (line.empty()) continue;
 
         if (line[0] == '>') {
@@ -34,11 +37,29 @@ FastaData read_fasta(const std::string& filename) {
     return data;
 }
 
-std::string join_sequences(const std::vector<std::string>& sequences) {
-    std::string result;
+string join_sequences(const vector<string>& sequences) {
+    string result;
 
     for (const auto& seq : sequences) {
         result += seq;
+    }
+
+    return result;
+}
+
+string preprocess_sequence(const string& input) {
+    string result;
+    result.reserve(input.size());
+
+    for (char c : input) {
+        char upper = toupper(c);
+
+        if (upper == 'A' || upper == 'C' || upper == 'G' || upper == 'T') {
+            result += upper;
+        }
+        else if (upper == 'N') {
+            continue;
+        }
     }
 
     return result;
@@ -48,21 +69,23 @@ int main() {
     try {
         FastaData fasta = read_fasta("genomic.fna");
 
-        std::cout << "ID: " << fasta.id << std::endl;
-        std::cout << "Broj linija sekvence: " << fasta.sequences.size() << std::endl;
+        cout << "ID: " << fasta.id << endl;
+        cout << "Broj linija sekvence: " << fasta.sequences.size() << endl;
 
         // if (!fasta.seq_len.empty()) {
-        //     std::cout << "Duljina prve linije: " << fasta.seq_len[0] << std::endl;
+        //     cout << "Duljina prve linije: " << fasta.seq_len[0] << endl;
         // } else {
-        //     std::cout << "Sekvenca nema linija!" << std::endl;
+        //     cout << "Sekvenca nema linija!" << endl;
         // }
 
-        std::string genome = join_sequences(fasta.sequences);
+        string genome = join_sequences(fasta.sequences);
+        cout << "Duljina sekvence: " << genome.size() << endl;
 
-        std::cout << "Duljina sekvence: " << genome.size() << std::endl;
+        string clean_genome = preprocess_sequence(genome);
+        cout << "Prociscena duljina: " << clean_genome.size() << endl;
 
-    } catch (const std::exception& e) {
-        std::cout << e.what() << std::endl;
+    } catch (const exception& e) {
+        cout << e.what() << endl;
     }
 
     return 0;

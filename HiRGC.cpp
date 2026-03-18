@@ -6,6 +6,7 @@
 struct FastaData {
     std::string id;
     std::vector<std::string> sequences;
+    std::vector<size_t> seq_len;
 };
 
 FastaData read_fasta(const std::string& filename) {
@@ -25,6 +26,7 @@ FastaData read_fasta(const std::string& filename) {
             data.id = line.substr(1);
         } else {
             data.sequences.push_back(line);
+            data.seq_len.push_back(line.size());
         }
     }
 
@@ -48,6 +50,12 @@ int main() {
 
         std::cout << "ID: " << fasta.id << std::endl;
         std::cout << "Broj linija sekvence: " << fasta.sequences.size() << std::endl;
+
+        // if (!fasta.seq_len.empty()) {
+        //     std::cout << "Duljina prve linije: " << fasta.seq_len[0] << std::endl;
+        // } else {
+        //     std::cout << "Sekvenca nema linija!" << std::endl;
+        // }
 
         std::string genome = join_sequences(fasta.sequences);
 

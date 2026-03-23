@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <cctype>
+#include <cstdint>
 
 using namespace std;
 
@@ -65,6 +66,20 @@ string preprocess_sequence(const string& input) {
     return result;
 }
 
+string to_binary(const string& sequence) {
+    string encoded = "";
+
+    for (char base : sequence) {
+        if (base == 'A') encoded += "00";
+        else if (base == 'C') encoded += "01";
+        else if (base == 'G') encoded += "10";
+        else if (base == 'T') encoded += "11";
+        else throw runtime_error("Invalid base");
+    }
+
+    return encoded;
+}
+
 int main() {
     try {
         FastaData fasta = read_fasta("genomic.fna");
@@ -83,6 +98,10 @@ int main() {
 
         string clean_genome = preprocess_sequence(genome);
         cout << "Prociscena duljina: " << clean_genome.size() << endl;
+
+        string encoded = to_binary(clean_genome);
+        //cout << "Encoded (2-bit string): " << encoded << endl;
+        cout << "Broj bitova: " << encoded.size() << endl;
 
     } catch (const exception& e) {
         cout << e.what() << endl;

@@ -28,6 +28,11 @@ struct PreprocessedData {
     vector<char> oth_ch;
 };
 
+struct KTupleData {
+    vector<int> values;
+    vector<int> positions;
+};
+
 FastaData read_fasta(const string& filename) {
     ifstream file(filename);
     
@@ -133,23 +138,46 @@ PreprocessedData preprocess_sequence(const string& input) {
     return result;
 }
 
-string to_binary(const string& sequence) {
-    string encoded = "";
+vector<int> to_binary(const string& sequence) {
+    vector<int> encoded;
 
     for (char base : sequence) {
-        if (base == 'A') encoded += "00";
-        else if (base == 'C') encoded += "01";
-        else if (base == 'G') encoded += "10";
-        else if (base == 'T') encoded += "11";
+        if (base == 'A') encoded.push_back(0);
+        else if (base == 'C') encoded.push_back(1);
+        else if (base == 'G') encoded.push_back(2);
+        else if (base == 'T') encoded.push_back(3);
         else throw runtime_error("Invalid base");
     }
 
     return encoded;
 }
 
+KTupleData generate_k_tuples(const vector<int>& encoded, int k) {
+    KTupleData data;
+
+    if (k <= 0 || k > encoded.size()) {
+        return data;
+    }
+
+    for (int i = 0; i <= encoded.size() - k; i++) {
+        int value = 0;
+        int power = 1;
+
+        for (int j = 0; j < k; j++) {
+            value += encoded[i + j] * power;
+            power *= 4;
+        }
+
+        data.values.push_back(value);
+        data.positions.push_back(i);
+    }
+
+    return data;
+}
+
 int main() {
     try {
-        FastaData fasta = read_fasta("genomic.fna");
+        FastaData fasta = read_fasta("genomic_ref.fna");
 
         cout << "ID: " << fasta.id << endl;
         cout << "Broj linija sekvence: " << fasta.sequences.size() << endl;
@@ -172,9 +200,18 @@ int main() {
         cout << "Broj N intervala: " << clean_genome.N_pos.size() << endl;
         cout << "Broj ostalih znakova: " << clean_genome.oth_pos.size() << endl;
 
-        string encoded = to_binary(clean_genome.L3);
+        vector<int> encoded = to_binary(clean_genome.L3);
         //cout << "Encoded (2-bit string): " << encoded << endl;
         cout << "Broj bitova: " << encoded.size() << endl;
+
+        int k = 3;
+        KTupleData ktuples = generate_k_tuples(encoded, k);
+        cout << "Broj k-tupleova: " << ktuples.values.size() << endl;
+
+        //for (int i = 0; i < ktuples.values.size(); i++) {
+        //    cout << "Tuple value: " << ktuples.values[i]
+        //        << " na poziciji " << ktuples.positions[i] << endl;
+        //}
 
     } catch (const exception& e) {
         cout << e.what() << endl;

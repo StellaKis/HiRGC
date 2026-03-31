@@ -33,6 +33,11 @@ struct KTupleData {
     vector<int> positions;
 };
 
+struct HashTable {
+    vector<int> h;      
+    vector<int> p;      
+};
+
 FastaData read_fasta(const string& filename) {
     ifstream file(filename);
     
@@ -175,6 +180,24 @@ KTupleData generate_k_tuples(const vector<int>& encoded, int k) {
     return data;
 }
 
+HashTable build_hash_table(const vector<int>& values, int s) {
+    HashTable table;
+
+    int n = values.size();
+
+    table.h.assign(s, -1);   // inicijalno prazno
+    table.p.assign(n, -1);   // next pointer
+
+    for (int i = 0; i < n; i++) {
+        int hash = values[i] % s;
+
+        table.p[i] = table.h[hash]; // p(i) = h()
+        table.h[hash] = i;          // h() = i
+    }
+
+    return table;
+}
+
 int main() {
     try {
         FastaData fasta = read_fasta("genomic_ref.fna");
@@ -212,6 +235,30 @@ int main() {
         //    cout << "Tuple value: " << ktuples.values[i]
         //        << " na poziciji " << ktuples.positions[i] << endl;
         //}
+
+        int s = 10; // probno
+        HashTable table = build_hash_table(ktuples.values, s);
+
+        // cout << "\nHeader (h):\n";
+        // for (int i = 0; i < table.h.size(); i++) {
+        //     cout << "h[" << i << "] = " << table.h[i] << endl;
+        // }
+
+        // cout << "\nBuckets (linked lists):\n";
+        // for (int i = 0; i < table.h.size(); i++) {
+        //     cout << "Bucket " << i << ": ";
+
+        //     int idx = table.h[i];
+
+        //     while (idx != -1) {
+        //         cout << idx << " -> ";
+        //         idx = table.p[idx];  // idi na sljedeći element
+        //     }
+
+        //     cout << "NULL" << endl;
+        // }
+
+
 
     } catch (const exception& e) {
         cout << e.what() << endl;

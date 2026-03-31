@@ -38,6 +38,16 @@ struct HashTable {
     vector<int> p;      
 };
 
+struct Match {
+    int pos;    
+    int len;    
+};
+
+struct Mismatch {
+    int start;
+    int end;
+};
+
 FastaData read_fasta(const string& filename) {
     ifstream file(filename);
     
@@ -180,7 +190,7 @@ KTupleData generate_k_tuples(const vector<int>& encoded, int k) {
     return data;
 }
 
-HashTable build_hash_table(const vector<int>& values, int s) {
+HashTable generate_hash_table(const vector<int>& values, int s) {
     HashTable table;
 
     int n = values.size();
@@ -198,9 +208,75 @@ HashTable build_hash_table(const vector<int>& values, int s) {
     return table;
 }
 
+void greedy_matching(
+    const vector<int>& ref_encoded,
+    const vector<int>& target_encoded,
+    int k,
+    int s
+) {
+    int nt = target_encoded.size();
+
+    KTupleData ref_tuples = generate_k_tuples(ref_encoded, k);
+
+    HashTable table = generate_hash_table(ref_tuples.values, s);
+
+    int i = 0; 
+    int p_star = 0; 
+
+    while (i <= nt - k) {
+
+        int Vt = 0;
+        int power = 1;
+
+        for (int j = 0; j < k; j++) {
+            Vt += target_encoded[i + j] * power;
+            power *= 4;
+        }
+
+        int bucket = Vt % s;
+        int j = table.h[bucket];
+
+        int p_max = -1;  
+        int l_max = 0;
+
+        while (j != -1) { 
+            
+            int l = 0;
+            int ref_pos = ref_tuples.positions[j];
+
+            while ( (i + l < nt) && (ref_pos + l < ref_encoded.size()) && target_encoded[i + l] == ref_encoded[ref_pos + l]) {
+                l++;
+            }
+
+            if (l >= k && l > l_max) {
+                p_max = ref_pos;
+                l_max = l;
+            }
+
+            j = table.p[j];
+        }
+
+        if (l_max > 0) {
+            if (i > p_star) {
+                cout << "Mismatch: [" << p_star << ", " << i - 1 << "]\n";
+            }
+
+            cout << "Match: pos=" << p_max << ", len=" << l_max << endl;
+
+            p_star = i + l_max;
+        }
+
+        i = i + l_max + 1;
+    }
+
+    if (p_star < nt) {
+        cout << "Mismatch: [" << p_star << ", " << nt - 1 << "]\n";
+    }
+}
+
 int main() {
     try {
-        FastaData fasta = read_fasta("genomic_ref.fna");
+        FastaData fasta = read_fasta("genomic.fna");
 
         cout << "ID: " << fasta.id << endl;
         cout << "Broj linija sekvence: " << fasta.sequences.size() << endl;
@@ -223,21 +299,21 @@ int main() {
         cout << "Broj N intervala: " << clean_genome.N_pos.size() << endl;
         cout << "Broj ostalih znakova: " << clean_genome.oth_pos.size() << endl;
 
-        vector<int> encoded = to_binary(clean_genome.L3);
+        vector<int> target_encoded = to_binary(clean_genome.L3);
         //cout << "Encoded (2-bit string): " << encoded << endl;
-        cout << "Broj bitova: " << encoded.size() << endl;
+        cout << "Broj bitova: " << target_encoded.size() << endl;
 
-        int k = 3;
-        KTupleData ktuples = generate_k_tuples(encoded, k);
-        cout << "Broj k-tupleova: " << ktuples.values.size() << endl;
+        // int k = 3;
+        // KTupleData ktuples = generate_k_tuples(encoded, k);
+        // cout << "Broj k-tupleova: " << ktuples.values.size() << endl;
 
         //for (int i = 0; i < ktuples.values.size(); i++) {
         //    cout << "Tuple value: " << ktuples.values[i]
         //        << " na poziciji " << ktuples.positions[i] << endl;
         //}
 
-        int s = 10; // probno
-        HashTable table = build_hash_table(ktuples.values, s);
+        // int s = 10; // probno
+        // HashTable table = generate_hash_table(ktuples.values, s);
 
         // cout << "\nHeader (h):\n";
         // for (int i = 0; i < table.h.size(); i++) {
@@ -258,7 +334,20 @@ int main() {
         //     cout << "NULL" << endl;
         // }
 
+        FastaData fasta_ref = read_fasta("genomic_ref.fna");
 
+        string genome_ref = join_sequences(fasta_ref.sequences);
+
+        PreprocessedData clean_genome_ref = preprocess_sequence(genome_ref);
+
+        vector<int> ref_encoded = to_binary(clean_genome_ref.L3);
+        //cout << "Encoded (2-bit string): " << encoded << endl;
+        cout << "Broj bitova: " << ref_encoded.size() << endl;
+
+        int k = 3;
+        int s = 10;
+
+        greedy_matching(ref_encoded, target_encoded, k, s);
 
     } catch (const exception& e) {
         cout << e.what() << endl;

@@ -287,6 +287,60 @@ void greedy_matching(
     }
 }
 
+void write_all_outputs(
+    const string& matches_file,
+    const string& mismatches_file,
+    const string& aux_file,
+    const vector<Match>& matches,
+    const vector<Mismatch>& mismatches,
+    const FastaData& fasta,
+    const PreprocessedData& prep
+) {
+    {
+        ofstream out(matches_file);
+        if (!out.is_open()) throw runtime_error("Cannot open matches file");
+
+        out << matches.size() << "\n";
+        for (const auto& m : matches) {
+            out << m.pos << " " << m.len << "\n";
+        }
+    }
+    {
+        ofstream out(mismatches_file);
+        if (!out.is_open()) throw runtime_error("Cannot open mismatches file");
+
+        out << mismatches.size() << "\n";
+        for (const auto& mm : mismatches) {
+            out << mm.start << " " << mm.end << "\n";
+        }
+    }
+    {
+        ofstream out(aux_file);
+        if (!out.is_open()) throw runtime_error("Cannot open auxiliary file");
+
+        out << "ID\n" << fasta.id << "\n";
+
+        out << "SEQ_LEN\n" << fasta.seq_len.size() << "\n";
+        for (size_t len : fasta.seq_len) out << len << " ";
+        out << "\n";
+
+        out << "LOWERCASE\n" << prep.low_pos.size() << "\n";
+        for (int i = 0; i < prep.low_pos.size(); i++) {
+            out << prep.low_pos[i] << " " << prep.low_len[i] << "\n";
+        }
+
+        out << "N_INTERVALS\n" << prep.N_pos.size() << "\n";
+        for (int i = 0; i < prep.N_pos.size(); i++) {
+            out << prep.N_pos[i] << " " << prep.N_len[i] << "\n";
+        }
+
+        out << "OTHER_CHARS\n" << prep.oth_pos.size() << "\n";
+        for (int i = 0; i < prep.oth_pos.size(); i++) {
+            out << prep.oth_pos[i] << " " << prep.oth_ch[i] << "\n";
+        }
+    }
+}
+
 int main() {
     try {
         FastaData fasta = read_fasta("genomic.fna");
@@ -368,13 +422,23 @@ int main() {
         cout << "Broj match zapisa: " << matches.size() << endl;
         cout << "Broj mismatch zapisa: " << mismatches.size() << endl;
 
-        for (const auto& m : matches) {
-            cout << "Match: pos=" << m.pos << ", len=" << m.len << endl;
-        }
+        // for (const auto& m : matches) {
+        //     cout << "Match: pos=" << m.pos << ", len=" << m.len << endl;
+        // }
 
-        for (const auto& mm : mismatches) {
-            cout << "Mismatch: [" << mm.start << ", " << mm.end << "]" << endl;
-        }
+        // for (const auto& mm : mismatches) {
+        //     cout << "Mismatch: [" << mm.start << ", " << mm.end << "]" << endl;
+        // }
+
+        write_all_outputs(
+            "matches.txt",
+            "mismatches.txt",
+            "auxiliary.txt",
+            matches,
+            mismatches,
+            fasta,
+            clean_genome
+        );
 
     } catch (const exception& e) {
         cout << e.what() << endl;

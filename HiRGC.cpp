@@ -4,6 +4,7 @@
 #include <string>
 #include <cctype>
 #include <cstdint>
+#include <cstdlib>
 
 using namespace std;
 
@@ -45,7 +46,7 @@ struct Match {
 
 struct Mismatch {
     int start;
-    int end;
+    string seq;
 };
 
 FastaData read_fasta(const string& filename) {
@@ -167,6 +168,24 @@ vector<int> to_binary(const string& sequence) {
     return encoded;
 }
 
+char decode_base(int x) {
+    if (x == 0) return 'A';
+    if (x == 1) return 'C';
+    if (x == 2) return 'G';
+    if (x == 3) return 'T';
+    throw runtime_error("Invalid base");
+}
+
+string decode_sequence(const vector<int>& encoded, int start, int end) {
+    string result;
+
+    for (int i = start; i <= end; i++) {
+        result += decode_base(encoded[i]);
+    }
+
+    return result;
+}
+
 KTupleData generate_k_tuples(const vector<int>& encoded, int k) {
     KTupleData data;
 
@@ -264,7 +283,7 @@ void greedy_matching(
             if (i > p_star) {
                 Mismatch mm;
                 mm.start = p_star;
-                mm.end = i - 1;
+                mm.seq = decode_sequence(target_encoded, p_star, i - 1);
                 mismatches.push_back(mm);
             }
 
@@ -282,9 +301,90 @@ void greedy_matching(
     if (p_star < nt) {
         Mismatch mm;
         mm.start = p_star;
-        mm.end = nt - 1;
+        mm.seq = decode_sequence(target_encoded, p_star, nt - 1);
         mismatches.push_back(mm);
     }
+}
+
+vector<int> delta_encode(const vector<int>& values) {
+    vector<int> result;
+
+    if (values.empty()) return result;
+
+    result.push_back(values[0]);
+
+    for (int i = 1; i < (int)values.size(); i++) {
+        result.push_back(values[i] - values[i - 1]);
+    }
+
+    return result;
+}
+
+void rle_encode(const vector<size_t>& input, vector<int>& values, vector<int>& counts) {
+    values.clear();
+    counts.clear();
+
+    if (input.empty()) return;
+
+    int current = (int)input[0];
+    int count = 1;
+
+    for (int i = 1; i < (int)input.size(); i++) {
+        if ((int)input[i] == current) {
+            count++;
+        } else {
+            values.push_back(current);
+            counts.push_back(count);
+            current = (int)input[i];
+            count = 1;
+        }
+    }
+
+    values.push_back(current);
+    counts.push_back(count);
+}
+
+vector<char> build_other_alphabet(const vector<char>& oth_ch) {
+    vector<char> alphabet;
+
+    for (char c : oth_ch) {
+        bool found = false;
+
+        for (char a : alphabet) {
+            if (a == c) {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            alphabet.push_back(c);
+        }
+    }
+
+    return alphabet;
+}
+
+vector<int> encode_other_chars(const vector<char>& oth_ch, const vector<char>& alphabet) {
+    vector<int> codes;
+
+    for (char c : oth_ch) {
+        bool found = false;
+
+        for (int i = 0; i < (int)alphabet.size(); i++) {
+            if (alphabet[i] == c) {
+                codes.push_back(i);
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            throw runtime_error("Other character not found in alphabet");
+        }
+    }
+
+    return codes;
 }
 
 void write_all_outputs(
@@ -296,49 +396,89 @@ void write_all_outputs(
     const FastaData& fasta,
     const PreprocessedData& prep
 ) {
+    vector<int> match_pos;
+    vector<int> match_len;
+
+    for (const auto& m : matches) {
+        match_pos.push_back(m.pos);
+        match_len.push_back(m.len);
+    }
+
+    vector<int> match_pos_delta = delta_encode(match_pos);
+
+    vector<int> low_pos_delta = delta_encode(prep.low_pos);
+    vector<int> N_pos_delta = delta_encode(prep.N_pos);
+    vector<int> oth_pos_delta = delta_encode(prep.oth_pos);
+
+    vector<int> seq_len_values;
+    vector<int> seq_len_counts;
+    rle_encode(fasta.seq_len, seq_len_values, seq_len_counts);
+
+    vector<char> oth_alphabet = build_other_alphabet(prep.oth_ch);
+    vector<int> oth_codes = encode_other_chars(prep.oth_ch, oth_alphabet);
+
     {
         ofstream out(matches_file);
         if (!out.is_open()) throw runtime_error("Cannot open matches file");
 
         out << matches.size() << "\n";
-        for (const auto& m : matches) {
-            out << m.pos << " " << m.len << "\n";
+        for (int i = 0; i < (int)matches.size(); i++) {
+            out << match_pos_delta[i] << " " << match_len[i] << "\n";
         }
     }
+
     {
         ofstream out(mismatches_file);
         if (!out.is_open()) throw runtime_error("Cannot open mismatches file");
 
         out << mismatches.size() << "\n";
         for (const auto& mm : mismatches) {
-            out << mm.start << " " << mm.end << "\n";
+            out << mm.start << " " << mm.seq << "\n";
         }
     }
+
     {
         ofstream out(aux_file);
         if (!out.is_open()) throw runtime_error("Cannot open auxiliary file");
 
         out << "ID\n" << fasta.id << "\n";
 
-        out << "SEQ_LEN\n" << fasta.seq_len.size() << "\n";
-        for (size_t len : fasta.seq_len) out << len << " ";
-        out << "\n";
+        out << "SEQ_LEN_RLE\n" << seq_len_values.size() << "\n";
+        for (int i = 0; i < (int)seq_len_values.size(); i++) {
+            out << seq_len_values[i] << " " << seq_len_counts[i] << "\n";
+        }
 
         out << "LOWERCASE\n" << prep.low_pos.size() << "\n";
-        for (int i = 0; i < prep.low_pos.size(); i++) {
-            out << prep.low_pos[i] << " " << prep.low_len[i] << "\n";
+        for (int i = 0; i < (int)prep.low_pos.size(); i++) {
+            out << low_pos_delta[i] << " " << prep.low_len[i] << "\n";
         }
 
         out << "N_INTERVALS\n" << prep.N_pos.size() << "\n";
-        for (int i = 0; i < prep.N_pos.size(); i++) {
-            out << prep.N_pos[i] << " " << prep.N_len[i] << "\n";
+        for (int i = 0; i < (int)prep.N_pos.size(); i++) {
+            out << N_pos_delta[i] << " " << prep.N_len[i] << "\n";
         }
 
-        out << "OTHER_CHARS\n" << prep.oth_pos.size() << "\n";
-        for (int i = 0; i < prep.oth_pos.size(); i++) {
-            out << prep.oth_pos[i] << " " << prep.oth_ch[i] << "\n";
+        out << "OTHER_ALPHABET\n" << oth_alphabet.size() << "\n";
+        for (char c : oth_alphabet) {
+            out << c << " ";
+        }
+        out << "\n";
+
+        out << "OTHER_CHARS\n";
+        out << prep.oth_pos.size() << "\n";
+        for (int i = 0; i < (int)prep.oth_pos.size(); i++) {
+            out << oth_pos_delta[i] << " " << oth_codes[i] << "\n";
         }
     }
+}
+
+int compress_with_7zip(const string& archive_name, const string& matches_file, const string& mismatches_file, const string& aux_file) {
+    string command = "7z a -t7z -m0=PPMd -mx=9 \"" + archive_name + "\" \"" +
+                     matches_file + "\" \"" +
+                     mismatches_file + "\" \"" +
+                     aux_file + "\"";
+
+    return system(command.c_str());
 }
 
 int main() {
@@ -430,15 +570,15 @@ int main() {
         //     cout << "Mismatch: [" << mm.start << ", " << mm.end << "]" << endl;
         // }
 
-        write_all_outputs(
-            "matches.txt",
-            "mismatches.txt",
-            "auxiliary.txt",
-            matches,
-            mismatches,
-            fasta,
-            clean_genome
-        );
+        write_all_outputs("matches.txt", "mismatches.txt", "auxiliary.txt", matches, mismatches, fasta, clean_genome);
+
+        int zip_status = compress_with_7zip("compressed_output.7z", "matches.txt", "mismatches.txt", "auxiliary.txt");
+
+        if (zip_status != 0) {
+            throw runtime_error("7-Zip compression failed");
+        }
+
+        cout << "7-Zip PPMd compression completed." << endl;
 
     } catch (const exception& e) {
         cout << e.what() << endl;

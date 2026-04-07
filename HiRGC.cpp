@@ -212,19 +212,22 @@ void greedy_matching(
     const vector<int>& ref_encoded,
     const vector<int>& target_encoded,
     int k,
-    int s
+    int s,
+    vector<Match>& matches,
+    vector<Mismatch>& mismatches
 ) {
+    matches.clear();
+    mismatches.clear();
+
     int nt = target_encoded.size();
 
     KTupleData ref_tuples = generate_k_tuples(ref_encoded, k);
-
     HashTable table = generate_hash_table(ref_tuples.values, s);
 
-    int i = 0; 
-    int p_star = 0; 
+    int i = 0;
+    int p_star = 0;
 
     while (i <= nt - k) {
-
         int Vt = 0;
         int power = 1;
 
@@ -236,15 +239,16 @@ void greedy_matching(
         int bucket = Vt % s;
         int j = table.h[bucket];
 
-        int p_max = -1;  
+        int p_max = -1;
         int l_max = 0;
 
-        while (j != -1) { 
-            
+        while (j != -1) {
             int l = 0;
             int ref_pos = ref_tuples.positions[j];
 
-            while ( (i + l < nt) && (ref_pos + l < ref_encoded.size()) && target_encoded[i + l] == ref_encoded[ref_pos + l]) {
+            while ((i + l < nt) &&
+                   (ref_pos + l < ref_encoded.size()) &&
+                   target_encoded[i + l] == ref_encoded[ref_pos + l]) {
                 l++;
             }
 
@@ -258,10 +262,16 @@ void greedy_matching(
 
         if (l_max > 0) {
             if (i > p_star) {
-                cout << "Mismatch: [" << p_star << ", " << i - 1 << "]\n";
+                Mismatch mm;
+                mm.start = p_star;
+                mm.end = i - 1;
+                mismatches.push_back(mm);
             }
 
-            cout << "Match: pos=" << p_max << ", len=" << l_max << endl;
+            Match m;
+            m.pos = p_max;
+            m.len = l_max;
+            matches.push_back(m);
 
             p_star = i + l_max;
         }
@@ -270,7 +280,10 @@ void greedy_matching(
     }
 
     if (p_star < nt) {
-        cout << "Mismatch: [" << p_star << ", " << nt - 1 << "]\n";
+        Mismatch mm;
+        mm.start = p_star;
+        mm.end = nt - 1;
+        mismatches.push_back(mm);
     }
 }
 
@@ -347,7 +360,21 @@ int main() {
         int k = 3;
         int s = 10;
 
-        greedy_matching(ref_encoded, target_encoded, k, s);
+        vector<Match> matches;
+        vector<Mismatch> mismatches;
+
+        greedy_matching(ref_encoded, target_encoded, k, s, matches, mismatches);
+
+        cout << "Broj match zapisa: " << matches.size() << endl;
+        cout << "Broj mismatch zapisa: " << mismatches.size() << endl;
+
+        for (const auto& m : matches) {
+            cout << "Match: pos=" << m.pos << ", len=" << m.len << endl;
+        }
+
+        for (const auto& mm : mismatches) {
+            cout << "Mismatch: [" << mm.start << ", " << mm.end << "]" << endl;
+        }
 
     } catch (const exception& e) {
         cout << e.what() << endl;

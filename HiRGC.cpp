@@ -40,6 +40,7 @@ struct HashTable {
 };
 
 struct Match {
+    int start_target; 
     int pos;    
     int len;    
 };
@@ -47,6 +48,21 @@ struct Match {
 struct Mismatch {
     int start;
     string seq;
+};
+
+struct AuxData {
+    string id;
+
+    vector<size_t> seq_len;
+
+    vector<int> low_pos;
+    vector<int> low_len;
+
+    vector<int> N_pos;
+    vector<int> N_len;
+
+    vector<int> oth_pos;
+    vector<char> oth_ch;
 };
 
 FastaData read_fasta(const string& filename) {
@@ -288,6 +304,7 @@ void greedy_matching(
             }
 
             Match m;
+            m.start_target = i;
             m.pos = p_max;
             m.len = l_max;
             matches.push_back(m);
@@ -396,14 +413,17 @@ void write_all_outputs(
     const FastaData& fasta,
     const PreprocessedData& prep
 ) {
+    vector<int> match_start;
     vector<int> match_pos;
     vector<int> match_len;
 
     for (const auto& m : matches) {
+        match_start.push_back(m.start_target);
         match_pos.push_back(m.pos);
         match_len.push_back(m.len);
     }
 
+    vector<int> match_start_delta = delta_encode(match_start);
     vector<int> match_pos_delta = delta_encode(match_pos);
 
     vector<int> low_pos_delta = delta_encode(prep.low_pos);
@@ -423,7 +443,7 @@ void write_all_outputs(
 
         out << matches.size() << "\n";
         for (int i = 0; i < (int)matches.size(); i++) {
-            out << match_pos_delta[i] << " " << match_len[i] << "\n";
+            out << match_start_delta[i] << " " << match_pos_delta[i] << " " << match_len[i] << "\n";
         }
     }
 
@@ -473,83 +493,356 @@ void write_all_outputs(
 }
 
 int compress_with_7zip(const string& archive_name, const string& matches_file, const string& mismatches_file, const string& aux_file) {
-    string command = "7z a -t7z -m0=PPMd -mx=9 \"" + archive_name + "\" \"" +
-                     matches_file + "\" \"" +
-                     mismatches_file + "\" \"" +
-                     aux_file + "\"";
+    string command = "7z a -t7z -m0=PPMd -mx=9 \"" + archive_name + "\" \"" + matches_file + "\" \"" + mismatches_file + "\" \"" + aux_file + "\"";
 
     return system(command.c_str());
 }
 
+//dekompresija
+
+int extract_with_7zip(const string& archive_name, const string& output_dir) {
+    string command = "7z x \"" + archive_name + "\" -o\"" + output_dir + "\" -y";
+
+    return system(command.c_str());
+}
+
+vector<int> delta_decode(const vector<int>& delta) {
+    vector<int> result;
+
+    if (delta.empty()) return result;
+
+    result.push_back(delta[0]);
+
+    for (int i = 1; i < (int)delta.size(); i++) {
+        result.push_back(result[i - 1] + delta[i]);
+    }
+
+    return result;
+}
+
+vector<size_t> rle_decode(const vector<int>& values, const vector<int>& counts) {
+    vector<size_t> result;
+
+    for (int i = 0; i < (int)values.size(); i++) {
+        for (int j = 0; j < counts[i]; j++) {
+            result.push_back(values[i]);
+        }
+    }
+
+    return result;
+}
+
+vector<char> decode_other_chars(const vector<int>& codes, const vector<char>& alphabet) {
+    vector<char> result;
+
+    for (int code : codes) {
+        result.push_back(alphabet[code]);
+    }
+
+    return result;
+}
+
+vector<Match> read_matches(const string& filename) {
+    ifstream in(filename);
+
+    if (!in.is_open()) {
+        throw runtime_error("Cannot open matches file");
+    }
+
+    int n;
+    in >> n;
+
+    vector<int> start_delta(n);
+    vector<int> pos_delta(n);
+    vector<int> len(n);
+
+    for (int i = 0; i < n; i++) {
+        in >> start_delta[i]
+           >> pos_delta[i]
+           >> len[i];
+    }
+
+    vector<int> start = delta_decode(start_delta);
+    vector<int> pos = delta_decode(pos_delta);
+
+    vector<Match> matches(n);
+
+    for (int i = 0; i < n; i++) {
+        matches[i].start_target = start[i];
+        matches[i].pos = pos[i];
+        matches[i].len = len[i];
+    }
+
+    return matches;
+}
+
+vector<Mismatch> read_mismatches(const string& filename) {
+    ifstream in(filename);
+
+    if (!in.is_open()) {
+        throw runtime_error("Cannot open mismatches");
+    }
+
+    int n;
+    in >> n;
+
+    vector<Mismatch> mismatches(n);
+
+    for (int i = 0; i < n; i++) {
+        in >> mismatches[i].start
+           >> mismatches[i].seq;
+    }
+
+    return mismatches;
+}
+
+AuxData read_auxiliary(const string& filename) {
+
+    ifstream in(filename);
+
+    if (!in.is_open()) {
+        throw runtime_error("Cannot open auxiliary file");
+    }
+
+    AuxData aux;
+
+    string token;
+
+    // ID
+
+    in >> token; // ID
+    in.ignore();
+
+    getline(in, aux.id);
+
+    //SEQ_LEN_RLE
+
+    in >> token;
+
+    int rle_n;
+    in >> rle_n;
+
+    vector<int> values(rle_n);
+    vector<int> counts(rle_n);
+
+    for (int i = 0; i < rle_n; i++) {
+        in >> values[i] >> counts[i];
+    }
+
+    aux.seq_len = rle_decode(values, counts);
+
+    //LOWERCASE
+
+    in >> token;
+
+    int low_n;
+    in >> low_n;
+
+    vector<int> low_delta(low_n);
+
+    aux.low_len.resize(low_n);
+
+    for (int i = 0; i < low_n; i++) {
+        in >> low_delta[i]
+           >> aux.low_len[i];
+    }
+
+    aux.low_pos = delta_decode(low_delta);
+
+    //N_INTERVALS
+
+    in >> token;
+
+    int N_n;
+    in >> N_n;
+
+    vector<int> N_delta(N_n);
+
+    aux.N_len.resize(N_n);
+
+    for (int i = 0; i < N_n; i++) {
+        in >> N_delta[i]
+           >> aux.N_len[i];
+    }
+
+    aux.N_pos = delta_decode(N_delta);
+
+    //OTHER_ALPHABET
+
+    in >> token;
+
+    int alphabet_size;
+    in >> alphabet_size;
+
+    vector<char> alphabet(alphabet_size);
+
+    for (int i = 0; i < alphabet_size; i++) {
+        in >> alphabet[i];
+    }
+
+    //OTHER_CHARS
+
+    in >> token;
+
+    int oth_n;
+    in >> oth_n;
+
+    vector<int> oth_delta(oth_n);
+    vector<int> oth_codes(oth_n);
+
+    for (int i = 0; i < oth_n; i++) {
+        in >> oth_delta[i]
+           >> oth_codes[i];
+    }
+
+    aux.oth_pos = delta_decode(oth_delta);
+
+    aux.oth_ch = decode_other_chars(oth_codes, alphabet);
+
+    return aux;
+}
+
+string reconstruct_L3(
+    const vector<Match>& matches,
+    const vector<Mismatch>& mismatches,
+    const vector<int>& ref_encoded
+) {
+    string result;
+
+    int m_idx = 0;
+    int mm_idx = 0;
+
+    while (m_idx < matches.size() ||
+           mm_idx < mismatches.size()) {
+
+        if (mm_idx < mismatches.size() &&
+            (m_idx >= matches.size() ||
+             mismatches[mm_idx].start <
+             matches[m_idx].start_target)) {
+
+            result += mismatches[mm_idx].seq;
+            mm_idx++;
+        }
+        else {
+
+            int ref_pos = matches[m_idx].pos;
+            int len = matches[m_idx].len;
+
+            for (int i = 0; i < len; i++) {
+                result += decode_base(
+                    ref_encoded[ref_pos + i]
+                );
+            }
+
+            m_idx++;
+        }
+    }
+
+    return result;
+}
+
+string reconstruct_L2(
+    const string& L3,
+    const vector<int>& oth_pos,
+    const vector<char>& oth_ch
+) {
+    string result = L3;
+
+    for (int i = 0; i < (int)oth_pos.size(); i++) {
+        result.insert(result.begin() + oth_pos[i], oth_ch[i]);
+    }
+
+    return result;
+}
+
+string reconstruct_L1(
+    const string& L2,
+    const vector<int>& N_pos,
+    const vector<int>& N_len
+) {
+    string result = L2;
+
+    for (int i = 0; i < (int)N_pos.size(); i++) {
+        result.insert(N_pos[i], string(N_len[i], 'N'));
+    }
+
+    return result;
+}
+
+string reconstruct_original(
+    const string& L1,
+    const vector<int>& low_pos,
+    const vector<int>& low_len
+) {
+    string result = L1;
+
+    for (int i = 0; i < (int)low_pos.size(); i++) {
+        for (int j = 0; j < low_len[i]; j++) {
+            result[low_pos[i] + j] = tolower(result[low_pos[i] + j]);
+        }
+    }
+
+    return result;
+}
+
+void write_fasta(
+    const string& filename,
+    const string& id,
+    const string& sequence,
+    const vector<size_t>& seq_len
+) {
+    ofstream out(filename);
+
+    out << ">" << id << "\n";
+
+    int index = 0;
+
+    for (size_t len : seq_len) {
+        out << sequence.substr(index, len) << "\n";
+        index += len;
+    }
+}
+
+
 int main() {
     try {
-        FastaData fasta = read_fasta("genomic.fna");
 
-        cout << "ID: " << fasta.id << endl;
-        cout << "Broj linija sekvence: " << fasta.sequences.size() << endl;
-
-        // if (!fasta.seq_len.empty()) {
-        //     cout << "Duljina prve linije: " << fasta.seq_len[0] << endl;
-        // } else {
-        //     cout << "Sekvenca nema linija!" << endl;
-        // }
+        FastaData fasta = read_fasta("genomic copy.fna");
 
         string genome = join_sequences(fasta.sequences);
-        cout << "Duljina sekvence: " << genome.size() << endl;
+
+        cout << "ID: " << fasta.id << endl;
+        cout << "Original genome length: " << genome.size() << endl;
+
+        cout << "\nPREPROCESSING\n" << endl;
 
         PreprocessedData clean_genome = preprocess_sequence(genome);
-        cout << "L1 duljina: " << clean_genome.L1.size() << endl;
-        cout << "L2 duljina: " << clean_genome.L2.size() << endl;
-        cout << "L3 duljina: " << clean_genome.L3.size() << endl;
 
-        cout << "Broj lower-case intervala: " << clean_genome.low_pos.size() << endl;
-        cout << "Broj N intervala: " << clean_genome.N_pos.size() << endl;
-        cout << "Broj ostalih znakova: " << clean_genome.oth_pos.size() << endl;
+        cout << "L1 length: " << clean_genome.L1.size() << endl;
+        cout << "L2 length: " << clean_genome.L2.size() << endl;
+        cout << "L3 length: " << clean_genome.L3.size() << endl;
 
-        vector<int> target_encoded = to_binary(clean_genome.L3);
-        //cout << "Encoded (2-bit string): " << encoded << endl;
-        cout << "Broj bitova: " << target_encoded.size() << endl;
+        cout << "Lowercase intervals: " << clean_genome.low_pos.size() << endl;
 
-        // int k = 3;
-        // KTupleData ktuples = generate_k_tuples(encoded, k);
-        // cout << "Broj k-tupleova: " << ktuples.values.size() << endl;
+        cout << "N intervals: " << clean_genome.N_pos.size() << endl;
 
-        //for (int i = 0; i < ktuples.values.size(); i++) {
-        //    cout << "Tuple value: " << ktuples.values[i]
-        //        << " na poziciji " << ktuples.positions[i] << endl;
-        //}
+        cout << "Other chars: " << clean_genome.oth_pos.size() << endl;
 
-        // int s = 10; // probno
-        // HashTable table = generate_hash_table(ktuples.values, s);
-
-        // cout << "\nHeader (h):\n";
-        // for (int i = 0; i < table.h.size(); i++) {
-        //     cout << "h[" << i << "] = " << table.h[i] << endl;
-        // }
-
-        // cout << "\nBuckets (linked lists):\n";
-        // for (int i = 0; i < table.h.size(); i++) {
-        //     cout << "Bucket " << i << ": ";
-
-        //     int idx = table.h[i];
-
-        //     while (idx != -1) {
-        //         cout << idx << " -> ";
-        //         idx = table.p[idx];  // idi na sljedeći element
-        //     }
-
-        //     cout << "NULL" << endl;
-        // }
+        cout << "\nREFERENTNI GENOM\n" << endl;
 
         FastaData fasta_ref = read_fasta("genomic_ref.fna");
 
         string genome_ref = join_sequences(fasta_ref.sequences);
 
-        PreprocessedData clean_genome_ref = preprocess_sequence(genome_ref);
+        PreprocessedData clean_ref = preprocess_sequence(genome_ref);
 
-        vector<int> ref_encoded = to_binary(clean_genome_ref.L3);
-        //cout << "Encoded (2-bit string): " << encoded << endl;
-        cout << "Broj bitova: " << ref_encoded.size() << endl;
+        vector<int> ref_encoded = to_binary(clean_ref.L3);
+
+        vector<int> target_encoded = to_binary(clean_genome.L3);
+
+        cout << "Reference encoded length: " << ref_encoded.size() << endl;
+
+        cout << "\nKOMPRESIJA\n" << endl;
 
         int k = 3;
         int s = 10;
@@ -559,29 +852,117 @@ int main() {
 
         greedy_matching(ref_encoded, target_encoded, k, s, matches, mismatches);
 
-        cout << "Broj match zapisa: " << matches.size() << endl;
-        cout << "Broj mismatch zapisa: " << mismatches.size() << endl;
+        cout << "Matches: " << matches.size() << endl;
 
-        // for (const auto& m : matches) {
-        //     cout << "Match: pos=" << m.pos << ", len=" << m.len << endl;
-        // }
+        cout << "Mismatches: " << mismatches.size() << endl;
 
-        // for (const auto& mm : mismatches) {
-        //     cout << "Mismatch: [" << mm.start << ", " << mm.end << "]" << endl;
-        // }
+        vector<int> match_pos;
+
+        for (const auto& m : matches) {
+            match_pos.push_back(m.pos);
+        }
+
+        vector<int> match_pos_delta = delta_encode(match_pos);
+
+        cout << "Delta encoded match positions: " << match_pos_delta.size() << endl;
+
+        vector<int> seq_len_values;
+        vector<int> seq_len_counts;
+
+        rle_encode(fasta.seq_len, seq_len_values, seq_len_counts);
+
+        cout << "RLE blocks: " << seq_len_values.size() << endl;
+
+        vector<char> oth_alphabet = build_other_alphabet(clean_genome.oth_ch);
+
+        vector<int> oth_codes = encode_other_chars(clean_genome.oth_ch, oth_alphabet);
+
+        cout << "Other alphabet size: " << oth_alphabet.size() << endl;
+
+        cout << "\n7ZIP KOMPRESIJA\n" << endl;
 
         write_all_outputs("matches.txt", "mismatches.txt", "auxiliary.txt", matches, mismatches, fasta, clean_genome);
 
         int zip_status = compress_with_7zip("compressed_output.7z", "matches.txt", "mismatches.txt", "auxiliary.txt");
 
         if (zip_status != 0) {
-            throw runtime_error("7-Zip compression failed");
+            throw runtime_error("7zip compression failed");
         }
 
-        cout << "7-Zip PPMd compression completed." << endl;
+        cout << "7zip archive created." << endl;
 
-    } catch (const exception& e) {
-        cout << e.what() << endl;
+        cout << "\nDEKOMPRESIJA\n" << endl;
+
+        int extract_status = extract_with_7zip("compressed_output.7z","extracted");
+
+        if (extract_status != 0) {
+            throw runtime_error("7zip extraction failed");
+        }
+
+        cout << "Archive extracted." << endl;
+
+        vector<Match> decoded_matches = read_matches("extracted/matches.txt");
+
+        cout << "Matches loaded: " << decoded_matches.size() << endl;
+
+        vector<Mismatch> decoded_mismatches = read_mismatches("extracted/mismatches.txt");
+
+        cout << "Mismatches loaded: " << decoded_mismatches.size() << endl;
+
+        AuxData aux = read_auxiliary("extracted/auxiliary.txt");
+
+        cout << "Auxiliary loaded." << endl;
+
+        string reconstructed_L3 = reconstruct_L3(decoded_matches, decoded_mismatches, ref_encoded);
+
+        cout << "L3 reconstructed." << endl;
+
+        string reconstructed_L2 = reconstruct_L2(reconstructed_L3, aux.oth_pos, aux.oth_ch);
+
+        cout << "L2 reconstructed." << endl;
+
+        string reconstructed_L1 = reconstruct_L1(reconstructed_L2, aux.N_pos, aux.N_len);
+
+        cout << "L1 reconstructed." << endl;
+        
+        string reconstructed_genome = reconstruct_original(reconstructed_L1, aux.low_pos, aux.low_len);
+
+        cout << "Original genome reconstructed." << endl;
+
+        cout << "\nVALIDACIJA\n" << endl;
+
+        if (reconstructed_genome == genome) {
+            cout << "USPJEH: Dekompresija je tocna!" << endl;
+        }
+        else {
+            cout << "GRESKA: Sekvence nisu jednake!" << endl;
+
+            int min_len = min(reconstructed_genome.size(), genome.size());
+
+            for (int i = 0; i < min_len; i++) {
+
+                if (reconstructed_genome[i] != genome[i]) {
+
+                    cout << "Prva razlika na poziciji " << i << endl;
+
+                    cout << "Original: " << genome[i] << endl;
+
+                    cout << "Reconstructed: " << reconstructed_genome[i]<< endl;
+
+                    break;
+                }
+            }
+        }
+    
+        cout << "\nZAPIS REKONSTRUIRANOG FASTA" << endl;
+
+        write_fasta("reconstructed.fna", aux.id, reconstructed_genome, aux.seq_len);
+
+        cout << "Datoteka reconstructed.fna zapisana." << endl;
+
+    }
+    catch (const exception& e) {
+        cout << "ERROR: " << e.what() << endl;
     }
 
     return 0;

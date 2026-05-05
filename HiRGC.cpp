@@ -103,6 +103,7 @@ string join_sequences(const vector<string>& sequences) {
 
 PreprocessedData preprocess_sequence(const string& input) {
     PreprocessedData result;
+
     bool in_lower = false;
     int start_lower = 0;
 
@@ -229,16 +230,18 @@ KTupleData generate_k_tuples(const vector<int>& encoded, int k) {
 HashTable generate_hash_table(const vector<uint64_t>& values, int s) {
     HashTable table;
 
-    int n = values.size();
+    int n = (int)values.size();
 
-    table.h.assign(s, -1);   // inicijalno prazno
-    table.p.assign(n, -1);   // next pointer
+    table.h.assign(s, -1);
+    table.p.assign(n, -1);
+
+    int mask = s - 1;
 
     for (int i = 0; i < n; i++) {
-        int hash = values[i] % s;
+        int hash = (int)(values[i] & mask);
 
-        table.p[i] = table.h[hash]; // p(i) = h()
-        table.h[hash] = i;          // h() = i
+        table.p[i] = table.h[hash];
+        table.h[hash] = i;
     }
 
     return table;
@@ -255,40 +258,88 @@ void greedy_matching(
     matches.clear();
     mismatches.clear();
 
-    int nt = target_encoded.size();
+    int nr = (int)ref_encoded.size();
+    int nt = (int)target_encoded.size();
 
-    KTupleData ref_tuples = generate_k_tuples(ref_encoded, k);
+    if (k <= 0 || nr < k || nt < k) {
+        if (nt > 0) {
+            Mismatch mm;
+            mm.start = 0;
+            mm.seq = decode_sequence(target_encoded, 0, nt - 1);
+            mismatches.push_back(mm);
+        }
+        return;
+    }
+
+    KTupleData ref_tuples;
+    int ref_tuple_count = nr - k + 1;
+
+    uint64_t ref_value = 0;
+
+    for (int j = k - 1; j >= 0; j--) {
+        ref_value <<= 2;
+        ref_value += ref_encoded[j];
+    }
+
+    ref_tuples.values.push_back(ref_value);
+    ref_tuples.positions.push_back(0);
+
+    int shift_bits = 2 * (k - 1);
+
+    for (int i = 1; i < ref_tuple_count; i++) {
+        ref_value >>= 2;
+        ref_value += ((uint64_t)ref_encoded[i + k - 1] << shift_bits);
+
+        ref_tuples.values.push_back(ref_value);
+        ref_tuples.positions.push_back(i);
+    }
+
     HashTable table = generate_hash_table(ref_tuples.values, s);
+
+    int mask = s - 1;
 
     int i = 0;
     int p_star = 0;
 
-    while (i <= nt - k) {
-        uint64_t Vt = 0;
-        uint64_t power = 1;
+    uint64_t Vt = 0;
 
-        for (int j = 0; j < k; j++) {
-            Vt += target_encoded[i + j] * power;
-            power *= 4;
+    for (int j = k - 1; j >= 0; j--) {
+        Vt <<= 2;
+        Vt += target_encoded[j];
+    }
+
+    int current_hash_pos = 0;
+
+    while (i <= nt - k) {
+        while (current_hash_pos < i) {
+            Vt >>= 2;
+            Vt += ((uint64_t)target_encoded[current_hash_pos + k] << shift_bits);
+            current_hash_pos++;
         }
 
-        int bucket = Vt % s;
+        int bucket = (int)(Vt & mask);
         int j = table.h[bucket];
 
         int p_max = -1;
         int l_max = 0;
 
         while (j != -1) {
-            int l = 0;
+            if (ref_tuples.values[j] != Vt) {
+                j = table.p[j];
+                continue;
+            }
+
             int ref_pos = ref_tuples.positions[j];
 
+            int l = k;
+
             while ((i + l < nt) &&
-                   (ref_pos + l < ref_encoded.size()) &&
-                   target_encoded[i + l] == ref_encoded[ref_pos + l]) {
+                (ref_pos + l < nr) &&
+                target_encoded[i + l] == ref_encoded[ref_pos + l]) {
                 l++;
             }
 
-            if (l >= k && l > l_max) {
+            if (l > l_max) {
                 p_max = ref_pos;
                 l_max = l;
             }
@@ -494,7 +545,7 @@ void write_all_outputs(
 }
 
 int compress_with_7zip(const string& archive_name, const string& matches_file, const string& mismatches_file, const string& aux_file) {
-    string command = "7z a -t7z -m0=PPMd -mx=9 \"" + archive_name + "\" \"" + matches_file + "\" \"" + mismatches_file + "\" \"" + aux_file + "\"";
+    string command = "7z a -t7z -m0=PPMd -mx=5 \"" + archive_name + "\" \"" + matches_file + "\" \"" + mismatches_file + "\" \"" + aux_file + "\"";
 
     return system(command.c_str());
 }

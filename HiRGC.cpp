@@ -31,7 +31,7 @@ struct PreprocessedData {
 };
 
 struct KTupleData {
-    vector<int> values;
+    vector<uint64_t> values;
     vector<int> positions;
 };
 
@@ -211,8 +211,8 @@ KTupleData generate_k_tuples(const vector<int>& encoded, int k) {
     }
 
     for (int i = 0; i <= encoded.size() - k; i++) {
-        int value = 0;
-        int power = 1;
+        uint64_t value = 0;
+        uint64_t power = 1;
 
         for (int j = 0; j < k; j++) {
             value += encoded[i + j] * power;
@@ -226,7 +226,7 @@ KTupleData generate_k_tuples(const vector<int>& encoded, int k) {
     return data;
 }
 
-HashTable generate_hash_table(const vector<int>& values, int s) {
+HashTable generate_hash_table(const vector<uint64_t>& values, int s) {
     HashTable table;
 
     int n = values.size();
@@ -264,8 +264,8 @@ void greedy_matching(
     int p_star = 0;
 
     while (i <= nt - k) {
-        int Vt = 0;
-        int power = 1;
+        uint64_t Vt = 0;
+        uint64_t power = 1;
 
         for (int j = 0; j < k; j++) {
             Vt += target_encoded[i + j] * power;
@@ -845,8 +845,8 @@ void compression_and_decompression_with_output(const std::string& target_file, c
 
         cout << "\nKOMPRESIJA\n" << endl;
 
-        int k = 3;
-        int s = 10;
+        int k = 20;
+        int s =  1 << 20;
 
         vector<Match> matches;
         vector<Mismatch> mismatches;
@@ -981,8 +981,8 @@ void run_compression_only(const std::string& target_file, const std::string& ref
     vector<int> ref_encoded = to_binary(clean_ref.L3);
     vector<int> target_encoded = to_binary(clean_genome.L3);
 
-    int k = 3;
-    int s = 10;
+    int k = 20;
+    int s =  1 << 30;
 
     vector<Match> matches;
     vector<Mismatch> mismatches;

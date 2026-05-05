@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
+#include <chrono>
 
 using namespace std;
 
@@ -804,10 +805,10 @@ void write_fasta(
 }
 
 
-int main() {
+void compression_and_decompression_with_output(const std::string& target_file, const std::string& ref_file) {
     try {
-
-        FastaData fasta = read_fasta("genomic copy.fna");
+        
+        FastaData fasta = read_fasta(target_file);
 
         string genome = join_sequences(fasta.sequences);
 
@@ -830,7 +831,7 @@ int main() {
 
         cout << "\nREFERENTNI GENOM\n" << endl;
 
-        FastaData fasta_ref = read_fasta("genomic_ref.fna");
+        FastaData fasta_ref = read_fasta(ref_file);
 
         string genome_ref = join_sequences(fasta_ref.sequences);
 
@@ -963,6 +964,75 @@ int main() {
     }
     catch (const exception& e) {
         cout << "ERROR: " << e.what() << endl;
+    }
+}
+
+void run_compression_only(const std::string& target_file, const std::string& ref_file){
+    FastaData fasta = read_fasta(target_file);
+    string genome = join_sequences(fasta.sequences);
+
+    PreprocessedData clean_genome = preprocess_sequence(genome);
+
+    FastaData fasta_ref = read_fasta(ref_file);
+    string genome_ref = join_sequences(fasta_ref.sequences);
+
+    PreprocessedData clean_ref = preprocess_sequence(genome_ref);
+
+    vector<int> ref_encoded = to_binary(clean_ref.L3);
+    vector<int> target_encoded = to_binary(clean_genome.L3);
+
+    int k = 3;
+    int s = 10;
+
+    vector<Match> matches;
+    vector<Mismatch> mismatches;
+
+    greedy_matching(ref_encoded, target_encoded, k, s, matches, mismatches);
+
+    write_all_outputs("matches.txt", "mismatches.txt", "auxiliary.txt", matches, mismatches, fasta, clean_genome);
+
+    int zip_status = compress_with_7zip("compressed_output.7z", "matches.txt", "mismatches.txt", "auxiliary.txt");
+
+    if (zip_status != 0)
+        throw runtime_error("7zip compression failed");
+}
+
+int main(int argc, char* argv[])
+{
+    if (argc < 4)
+    {
+        std::cout << "Usage:\n";
+        std::cout << "  ./HiRGC output <target.fna> <ref.fna>\n";
+        std::cout << "  ./HiRGC totaltime <target.fna> <ref.fna>\n";
+        return 1;
+    }
+
+    std::string mode = argv[1];
+    std::string target_file = argv[2];
+    std::string ref_file = argv[3];
+
+    if (mode == "output")
+    {
+        compression_and_decompression_with_output(target_file, ref_file);
+    }
+    else if (mode == "totaltime")
+    {
+        auto start = std::chrono::steady_clock::now();
+
+        run_compression_only(target_file, ref_file);
+
+        auto end = std::chrono::steady_clock::now();
+
+        std::chrono::duration<double> elapsed = end - start;
+
+        std::cout << "Total compression time: "
+                  << elapsed.count()
+                  << " seconds\n";
+    }
+    else
+    {
+        std::cout << "Unknown mode. Use output or benchmark.\n";
+        return 1;
     }
 
     return 0;

@@ -325,59 +325,67 @@ void greedy_matching(
     //generiranje hash tablice iz k-torki referentne sekvence
     HashTable table = generate_hash_table(ref_tuples.values, s);
 
-    
+    //hash lookup i pohlepno podudaranje
     int mask = s - 1;
 
-    int i = 0;
-    int p_star = 0;
+    int i = 0; //trenutna pozicija u ciljnoj sekvenci
+    int p_star = 0; //pozicija od koje počinje sljedeći mismatch u ciljnoj sekvenci tj. početak zadnjeg neobrađenog dijela (za mismatch)
 
-    uint64_t Vt = 0;
+    // računa se prva k-torka ciljne sekvence (kao broj u bazi 4)
+    uint64_t Vt = 0; // hash vrijednost trenutne k-torke ciljne sekvence
 
     for (int j = k - 1; j >= 0; j--) {
         Vt <<= 2;
         Vt += target_encoded[j];
     }
 
-    int current_hash_pos = 0;
+    int current_hash_pos = 0; //pozicija u ciljnoj sekvenci do koje je već izračunata hash vrijednost (Vt)
 
     while (i <= nt - k) {
         while (current_hash_pos < i) {
-            Vt >>= 2;
-            Vt += ((uint64_t)target_encoded[current_hash_pos + k] << shift_bits);
-            current_hash_pos++;
+            Vt >>= 2; // uklanjanje najstarijeg elementa k-torke
+            Vt += ((uint64_t)target_encoded[current_hash_pos + k] << shift_bits); // dodavanje novog elementa k-torke na najviši bit
+            current_hash_pos++; // pomicanje pozicije do koje je izračunat hash
         }
 
-        int bucket = (int)(Vt & mask);
-        int j = table.h[bucket];
+        int bucket = (int)(Vt & mask); // određivanje bucket-a u hash tablici za trenutnu k-torku ciljne sekvence
+        int j = table.h[bucket]; // indeks prve k-torke u referentnoj sekvenci koja se mapira u isti bucket
 
-        int p_max = -1;
-        int l_max = 0;
+        int p_max = -1; // pozicija u referentnoj sekvenci do koje se podudara trenutna k-torka
+        int l_max = 0; // duljina podudaranja između trenutne k-torke ciljne sekvence i odgovarajuće k-torke referentne sekvence
 
-        while (j != -1) {
+        while (j != -1) { 
+            //ako hash vrijednost k-torke iz referentne sekvence ne odgovara hash vrijednosti trenutne k-torke ciljne sekvence, nastavlja se pretraživanje sljedeće k-torke u istom bucketu
             if (ref_tuples.values[j] != Vt) {
                 j = table.p[j];
                 continue;
             }
 
-            int ref_pos = ref_tuples.positions[j];
+            //ako hash vrijednosti odgovaraju, provjerava se stvarno podudaranje k-torki i produžuje se podudaranje koliko god je moguće
+            int ref_pos = ref_tuples.positions[j]; // početna pozicija k-torke u referentnoj sekvenci
 
-            int l = k;
+            int l = k; // početna duljina podudaranja (barem k, jer se hash vrijednosti poklapaju)
 
+            // produžavanje podudaranja dok se znakovi poklapaju i ne dođe do kraja jedne od sekvenci
             while ((i + l < nt) &&
                 (ref_pos + l < nr) &&
                 target_encoded[i + l] == ref_encoded[ref_pos + l]) {
                 l++;
             }
 
+            // ako je pronađeno duže podudaranje od dosadašnjeg maksimalnog, ažurira se maksimalna duljina i pozicija podudaranja u referentnoj sekvenci
             if (l > l_max) {
                 p_max = ref_pos;
                 l_max = l;
             }
 
+            // nastavlja se pretraživanje sljedeće k-torke u istom bucketu
             j = table.p[j];
         }
 
+        //ako je pronađeno podudaranje (l_max > 0), bilježi se podudaranje i eventualno prethodno nepodudaranje (ako postoji) u odgovarajuće vektore matches i mismatches
         if (l_max > 0) {
+            //ako trenutna pozicija u ciljnoj sekvenci (i) je veća od p_star, znači da postoji nepodudaranje između p_star i i-1, koje se bilježi kao mismatch
             if (i > p_star) {
                 Mismatch mm;
                 mm.start = p_star;
@@ -385,57 +393,61 @@ void greedy_matching(
                 mismatches.push_back(mm);
             }
 
+            //bilježi se podudaranje u vektor matches s početnom pozicijom u ciljnoj sekvenci, pozicijom u referentnoj sekvenci i duljinom podudaranja
             Match m;
             m.start_target = i;
             m.pos = p_max;
             m.len = l_max;
             matches.push_back(m);
 
-            p_star = i + l_max;
+            p_star = i + l_max; // ažurira se p_star na poziciju nakon kraja pronađenog podudaranja, što označava početak sljedećeg neobrađenog dijela ciljne sekvence
         }
 
-        i = i + l_max + 1;
+        i = i + l_max + 1; // pomiče se trenutna pozicija u ciljnoj sekvenci na kraj pronađenog podudaranja + 1, što znači da se sljedeće pretraživanje započinje odmah nakon kraja pronađenog podudaranja
     }
 
+    // ako nakon završetka glavne petlje postoji neobrađeni dio ciljne sekvence (od p_star do kraja), bilježi se kao mismatch
     if (p_star < nt) {
         Mismatch mm;
         mm.start = p_star;
-        mm.seq = decode_sequence(target_encoded, p_star, nt - 1);
+        mm.seq = decode_sequence(target_encoded, p_star, nt - 1); 
         mismatches.push_back(mm);
     }
 }
 
+//delta kodiranje = prva vrijednost ostaje nepromijenjena, a svaka sljedeća zapisuje se kao razlika u odnosu na prethodnu
 vector<int> delta_encode(const vector<int>& values) {
     vector<int> result;
 
     if (values.empty()) return result;
 
-    result.push_back(values[0]);
+    result.push_back(values[0]); // prva vrijednost ostaje nepromijenjena
 
     for (int i = 1; i < (int)values.size(); i++) {
-        result.push_back(values[i] - values[i - 1]);
+        result.push_back(values[i] - values[i - 1]); // svaka sljedeća vrijednost zapisuje se kao razlika u odnosu na prethodnu
     }
 
     return result;
 }
 
+// funkcija za run-length encoding (RLE) služi za kodiranje duljina redaka kako bi se mogla obnoviti izvorna struktura FASTA datoteke
 void rle_encode(const vector<size_t>& input, vector<int>& values, vector<int>& counts) {
     values.clear();
     counts.clear();
 
     if (input.empty()) return;
 
-    int current = (int)input[0];
-    int count = 1;
+    int current = (int)input[0]; // trenutna vrijednost koja se kodira (na početku prva duljina reda)
+    int count = 1; // brojač ponavljanja trenutne vrijednosti
 
     for (int i = 1; i < (int)input.size(); i++) {
-        if ((int)input[i] == current) {
+        if ((int)input[i] == current) { // ako je trenutna vrijednost jednaka idućoj (input[i]), povećava se brojač ponavljanja i provjerava za idući i
             count++;
-        } else {
-            values.push_back(current);
-            counts.push_back(count);
-            current = (int)input[i];
-            count = 1;
+        } else { // ako se vrijednost ne podudara 
+            values.push_back(current); //bilježi se trenutna vrijednost
+            counts.push_back(count); //i njen broj ponavljanja
+            current = (int)input[i]; //zatim se ažurira trenutna vrijednost 
+            count = 1; //i resetira brojač
         }
     }
 
@@ -784,11 +796,7 @@ AuxData read_auxiliary(const string& filename) {
     return aux;
 }
 
-string reconstruct_L3(
-    const vector<Match>& matches,
-    const vector<Mismatch>& mismatches,
-    const vector<int>& ref_encoded
-) {
+string reconstruct_L3( const vector<Match>& matches, const vector<Mismatch>& mismatches, const vector<int>& ref_encoded) {
     string result;
 
     int m_idx = 0;
@@ -823,11 +831,7 @@ string reconstruct_L3(
     return result;
 }
 
-string reconstruct_L2(
-    const string& L3,
-    const vector<int>& oth_pos,
-    const vector<char>& oth_ch
-) {
+string reconstruct_L2(const string& L3, const vector<int>& oth_pos, const vector<char>& oth_ch) {
     string result = L3;
 
     for (int i = 0; i < (int)oth_pos.size(); i++) {
@@ -837,11 +841,7 @@ string reconstruct_L2(
     return result;
 }
 
-string reconstruct_L1(
-    const string& L2,
-    const vector<int>& N_pos,
-    const vector<int>& N_len
-) {
+string reconstruct_L1(const string& L2, const vector<int>& N_pos, const vector<int>& N_len) {
     string result = L2;
 
     for (int i = 0; i < (int)N_pos.size(); i++) {
@@ -851,11 +851,7 @@ string reconstruct_L1(
     return result;
 }
 
-string reconstruct_original(
-    const string& L1,
-    const vector<int>& low_pos,
-    const vector<int>& low_len
-) {
+string reconstruct_original(const string& L1, const vector<int>& low_pos, const vector<int>& low_len) {
     string result = L1;
 
     for (int i = 0; i < (int)low_pos.size(); i++) {
@@ -867,12 +863,7 @@ string reconstruct_original(
     return result;
 }
 
-void write_fasta(
-    const string& filename,
-    const string& id,
-    const string& sequence,
-    const vector<size_t>& seq_len
-) {
+void write_fasta( const string& filename, const string& id, const string& sequence, const vector<size_t>& seq_len) {
     ofstream out(filename);
 
     out << ">" << id << "\n";
@@ -889,8 +880,9 @@ void write_fasta(
 void compression_and_decompression_with_output(const std::string& target_file, const std::string& ref_file) {
     try {
         
+        // Čitanje sekvenci iz FASTA datoteke
         FastaData fasta = read_fasta(target_file);
-
+        // Spajanje svih sekvenci u jednu cjelovitu sekvencu
         string genome = join_sequences(fasta.sequences);
 
         cout << "ID: " << fasta.id << endl;
@@ -898,6 +890,7 @@ void compression_and_decompression_with_output(const std::string& target_file, c
 
         cout << "\nPREPROCESSING\n" << endl;
 
+        // Predobrada sekvence: formiranje stringova L1, L2 i L3 (identifikacija intervala malih slova, slova 'N' i ostalih znakova)
         PreprocessedData clean_genome = preprocess_sequence(genome);
 
         cout << "L1 length: " << clean_genome.L1.size() << endl;
@@ -911,7 +904,7 @@ void compression_and_decompression_with_output(const std::string& target_file, c
         cout << "Other chars: " << clean_genome.oth_pos.size() << endl;
 
         cout << "\nREFERENTNI GENOM\n" << endl;
-
+        // Čitanje referentne sekvence iz FASTA datoteke i predobrada na isti način kao i ciljne sekvence
         FastaData fasta_ref = read_fasta(ref_file);
 
         string genome_ref = join_sequences(fasta_ref.sequences);
@@ -925,13 +918,13 @@ void compression_and_decompression_with_output(const std::string& target_file, c
         cout << "Reference encoded length: " << ref_encoded.size() << endl;
 
         cout << "\nKOMPRESIJA\n" << endl;
-
+        // Postavljanje parametara k i s za pohlepno podudaranje
         int k = 20;
         int s =  1 << 20;
 
         vector<Match> matches;
         vector<Mismatch> mismatches;
-
+        // Izvođenje pohlepnog podudaranja između referentne i ciljne sekvence, bilježenje podudaranja i nepodudaranja
         greedy_matching(ref_encoded, target_encoded, k, s, matches, mismatches);
 
         cout << "Matches: " << matches.size() << endl;
@@ -943,7 +936,7 @@ void compression_and_decompression_with_output(const std::string& target_file, c
         for (const auto& m : matches) {
             match_pos.push_back(m.pos);
         }
-
+        // Delta kodiranje pozicija podudaranja
         vector<int> match_pos_delta = delta_encode(match_pos);
 
         cout << "Delta encoded match positions: " << match_pos_delta.size() << endl;
@@ -951,10 +944,11 @@ void compression_and_decompression_with_output(const std::string& target_file, c
         vector<int> seq_len_values;
         vector<int> seq_len_counts;
 
+        // RLE kodiranje duljina sekvenci
         rle_encode(fasta.seq_len, seq_len_values, seq_len_counts);
 
         cout << "RLE blocks: " << seq_len_values.size() << endl;
-
+        // Izgradnja abecede ostalih znakova i kodiranje tih znakova u brojeve
         vector<char> oth_alphabet = build_other_alphabet(clean_genome.oth_ch);
 
         vector<int> oth_codes = encode_other_chars(clean_genome.oth_ch, oth_alphabet);
@@ -962,7 +956,7 @@ void compression_and_decompression_with_output(const std::string& target_file, c
         cout << "Other alphabet size: " << oth_alphabet.size() << endl;
 
         cout << "\n7ZIP KOMPRESIJA\n" << endl;
-
+        // Zapis svih izlaza (matches, mismatches, auxiliary) u tekstualne datoteke i kompresija tih datoteka u 7zip arhivu
         write_all_outputs("matches.txt", "mismatches.txt", "auxiliary.txt", matches, mismatches, fasta, clean_genome);
 
         int zip_status = compress_with_7zip("compressed_output.7z", "matches.txt", "mismatches.txt", "auxiliary.txt");
@@ -974,7 +968,7 @@ void compression_and_decompression_with_output(const std::string& target_file, c
         cout << "7zip archive created." << endl;
 
         cout << "\nDEKOMPRESIJA\n" << endl;
-
+        // Ekstrakcija datoteka iz 7zip arhive, čitanje podataka iz tih datoteka i rekonstrukcija originalne sekvence kroz obrnut proces od kompresije
         int extract_status = extract_with_7zip("compressed_output.7z","extracted");
 
         if (extract_status != 0) {
@@ -1049,16 +1043,17 @@ void compression_and_decompression_with_output(const std::string& target_file, c
 }
 
 void run_compression_only(const std::string& target_file, const std::string& ref_file){
+    // Čitanje sekvenci iz FASTA datoteke i spajanje svih sekvenci u jednu cjelovitu sekvencu
     FastaData fasta = read_fasta(target_file);
     string genome = join_sequences(fasta.sequences);
-
+    // Predobrada sekvence: formiranje stringova L1, L2 i L3 (identifikacija intervala malih slova, slova 'N' i ostalih znakova)
     PreprocessedData clean_genome = preprocess_sequence(genome);
-
+    // Čitanje referentne sekvence iz FASTA datoteke i predobrada na isti način kao i ciljne sekvence
     FastaData fasta_ref = read_fasta(ref_file);
     string genome_ref = join_sequences(fasta_ref.sequences);
 
     PreprocessedData clean_ref = preprocess_sequence(genome_ref);
-
+    // Kodiranje sekvenci L3 referentne i ciljne sekvence u binarni format, gdje se A kodira kao 0, C kao 1, G kao 2 i T kao 3
     vector<int> ref_encoded = to_binary(clean_ref.L3);
     vector<int> target_encoded = to_binary(clean_genome.L3);
 
@@ -1067,11 +1062,10 @@ void run_compression_only(const std::string& target_file, const std::string& ref
 
     vector<Match> matches;
     vector<Mismatch> mismatches;
-
+    // Izvođenje pohlepnog podudaranja između referentne i ciljne sekvence, bilježenje podudaranja i nepodudaranja
     greedy_matching(ref_encoded, target_encoded, k, s, matches, mismatches);
-
+    // Zapis svih izlaza (matches, mismatches, auxiliary) u tekstualne datoteke i kompresija tih datoteka u 7zip arhivu
     write_all_outputs("matches.txt", "mismatches.txt", "auxiliary.txt", matches, mismatches, fasta, clean_genome);
-
     int zip_status = compress_with_7zip("compressed_output.7z", "matches.txt", "mismatches.txt", "auxiliary.txt");
 
     if (zip_status != 0)

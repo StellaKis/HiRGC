@@ -105,3 +105,17 @@ Runs compression only and measures total compression time.
 ./HiRGC totaltime <target.fna> <reference.fna>
 ```
 
+---
+
+## Dataset
+
+The datasets used for testing are included in the project as an archive named **data.zip**.
+
+The archive contains all necessary FASTA files used for testing and evaluation of the algorithm.  
+Before running the program, the archive should be extracted to the appropriate directory.
+
+## Documentation
+
+The project documentation is also included in the repository under the name **HiRGC.pdf**.
+
+The documentation is written in Croatian and contains, among other things, the results of testing performed on the provided datasets.

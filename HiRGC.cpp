@@ -1,3 +1,4 @@
+// autori koda: Stella Kiš, Natali Lazarić (cijeli kod je napisan u suradnji)
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -10,9 +11,9 @@
 using namespace std;
 
 struct FastaData {
-    string id;
-    vector<string> sequences;
-    vector<size_t> seq_len;
+    string id; // identifier fasta zapisan nakon znaka '>'
+    vector<string> sequences; // vektor koji sadrži sve sekvence iz FASTA datoteke (jedna sekvenca = jedan redak)
+    vector<size_t> seq_len; // vektor koji sadrži duljinu svake sekvence
 };
 
 struct PreprocessedData {
@@ -20,44 +21,45 @@ struct PreprocessedData {
     string L2;
     string L3;
 
-    vector<int> low_pos;
-    vector<int> low_len;
+    vector<int> low_pos; // vektor koji sadrži pozicije malih slova u izvornom zapisu
+    vector<int> low_len; // vektor koji sadrži duljine grupa malih slova u izvornom zapisu
 
-    vector<int> N_pos;
-    vector<int> N_len;
+    vector<int> N_pos; // vektor koji sadrži pozicije slova 'N' (nepoznatih baza) u izvornom zapisu
+    vector<int> N_len; // vektor koji sadrži duljine grupa slova 'N' u izvornom zapisu
 
-    vector<int> oth_pos;
-    vector<char> oth_ch;
+    vector<int> oth_pos; // vektor koji sadrži pozicije ostalih znakova u izvornom zapisu
+    vector<char> oth_ch; // vektor koji sadrži ostale znakove u izvornom zapisu
 };
 
 struct KTupleData {
-    vector<uint64_t> values;
-    vector<int> positions;
+    vector<uint64_t> values; // vektor koji sadrži vrijednosti k-torki (kodirane kao 64-bitni cijeli brojevi)
+    vector<int> positions;  // vektor koji sadrži početne pozicije k-torki u sekvenci (odgovara vrijednostima u 'values')
 };
 
 struct HashTable {
-    vector<int> h;      
-    vector<int> p;      
+    vector<int> h; // vektor koji predstavlja hash tablicu, gdje h[i] je indeks prve k-torke u bucketu
+    vector<int> p; // vektor koji predstavlja poveznice između k-torki u istom bucketu, gdje p[i] je indeks sljedeće k-torke u istom bucketu ili -1 ako nema više
 };
 
 struct Match {
-    int start_target; 
-    int pos;    
-    int len;    
+    int start_target; // početna pozicija podudaranja u ciljnoj sekvenci
+    int pos;    // početna pozicija podudaranja u referentnoj sekvenci
+    int len;    // duljina podudaranja
 };
 
 struct Mismatch {
-    int start;
-    string seq;
+    int start;  // početna pozicija nepodudaranja u ciljnoj sekvenci
+    string seq; // niz znakova koji predstavlja nepodudarni segment u ciljnoj sekvenci
 };
 
 struct AuxData {
-    string id;
+    string id; // identifier fasta zapisa
 
-    vector<size_t> seq_len;
+    vector<size_t> seq_len; // vektor koji sadrži duljinu svake sekvence (isti kao u FastaData)
 
-    vector<int> low_pos;
-    vector<int> low_len;
+    //vektori koji sadrže informacije o pozicijama i duljinama intervala malih slova, slova 'N' i ostalih znakova u izvornom zapisu (isti kao u PreprocessedData)
+    vector<int> low_pos; 
+    vector<int> low_len; 
 
     vector<int> N_pos;
     vector<int> N_len;
@@ -66,6 +68,8 @@ struct AuxData {
     vector<char> oth_ch;
 };
 
+// Funkcija za čitanje FASTA datoteke i pohranu podataka u strukturu FastaData
+// Ova funkcija popunjava strukturu FastaData s identifikatorom, sekvencama i njihovim duljinama
 FastaData read_fasta(const string& filename) {
     ifstream file(filename);
     
@@ -91,6 +95,8 @@ FastaData read_fasta(const string& filename) {
     return data;
 }
 
+
+// Funkcija za spajanje vektora sekvenci u jednu cjelovitu sekvencu
 string join_sequences(const vector<string>& sequences) {
     string result;
 
@@ -101,12 +107,16 @@ string join_sequences(const vector<string>& sequences) {
     return result;
 }
 
+// Funkcija za predobradu sekvence, koja identificira i bilježi intervale malih slova(->L1), slova 'N'(->L2) i ostalih znakova(->L3)
 PreprocessedData preprocess_sequence(const string& input) {
     PreprocessedData result;
 
     bool in_lower = false;
     int start_lower = 0;
 
+    //Identifikazija intervala malih slova
+    // bilježenje prvog malog slova u result.low_pos i duljine intervala malih slova u result.low_len
+    //i formiranje stringa L1 koji sadrži sve znakove iz inputa pretvorene u velika slova
     for (int i = 0; i < input.size(); i++) {
         char c = input[i];
 
@@ -133,6 +143,9 @@ PreprocessedData preprocess_sequence(const string& input) {
 
     bool in_N = false;
     int start_N = 0;
+    //Identifikazija intervala slova 'N'
+    // bilježenje prvog slova 'N' u result.N_pos i duljine intervala slova 'N' u result.N_len
+    //i formiranje stringa L2 koji sadrži sve znakove iz L1 osim slova 'N'
 
     for (int i = 0; i < result.L1.size(); i++) {
         char c = result.L1[i];
@@ -157,6 +170,10 @@ PreprocessedData preprocess_sequence(const string& input) {
         result.N_len.push_back(result.L1.size() - start_N);
     }
 
+    //Identifikazija ostalih znakova (koji nisu A, C, G, T)
+    // bilježenje pozicija ostalih znakova u result.oth_pos i samih znakova u result.oth_ch
+    //i formiranje stringa L3 koji sadrži samo A, C, G
+
     for (int i = 0; i < result.L2.size(); i++) {
         char upper = result.L2[i];
 
@@ -172,6 +189,7 @@ PreprocessedData preprocess_sequence(const string& input) {
     return result;
 }
 
+// Funkcija za kodiranje sekvence u binarni format, gdje se A kodira kao 0, C kao 1, G kao 2 i T kao 3
 vector<int> to_binary(const string& sequence) {
     vector<int> encoded;
 
@@ -185,7 +203,7 @@ vector<int> to_binary(const string& sequence) {
 
     return encoded;
 }
-
+// Funkcija za dekodiranje binarnog formata natrag u sekvencu, gdje se 0 dekodira kao A, 1 kao C, 2 kao G i 3 kao T
 char decode_base(int x) {
     if (x == 0) return 'A';
     if (x == 1) return 'C';
@@ -194,6 +212,7 @@ char decode_base(int x) {
     throw runtime_error("Invalid base");
 }
 
+// Funkcija za dekodiranje sekvence iz binarnog formata natrag u string, koristeći funkciju decode_base
 string decode_sequence(const vector<int>& encoded, int start, int end) {
     string result;
 
@@ -204,6 +223,7 @@ string decode_sequence(const vector<int>& encoded, int start, int end) {
     return result;
 }
 
+// maknuti? obrisati? 
 KTupleData generate_k_tuples(const vector<int>& encoded, int k) {
     KTupleData data;
 
@@ -227,26 +247,30 @@ KTupleData generate_k_tuples(const vector<int>& encoded, int k) {
     return data;
 }
 
+// Funkcija za generiranje hash tablice iz k-torki
+// Koristi jednostavnu metodu hashiranja (modulo s veličinom tablice) i lančano adresiranje za rješavanje kolizija
 HashTable generate_hash_table(const vector<uint64_t>& values, int s) {
     HashTable table;
 
     int n = (int)values.size();
 
-    table.h.assign(s, -1);
-    table.p.assign(n, -1);
+    table.h.assign(s, -1);  // inicijalno prazno
+    table.p.assign(n, -1);  // next pointer
 
     int mask = s - 1;
 
+    //mapiranje velikog broja (values[i]) u raspon [0, s-1] i izgradnja lančane strukture za k-torke koje se mapiraju u isti bucket
     for (int i = 0; i < n; i++) {
         int hash = (int)(values[i] & mask);
 
-        table.p[i] = table.h[hash];
-        table.h[hash] = i;
+        table.p[i] = table.h[hash]; // p(i) = h(); poveznice između k-torki u istom bucketu
+        table.h[hash] = i;  // h() = i; h[j] je indeks prve k-torke u bucketu
     }
 
     return table;
 }
 
+// Funkcija za izvođenje pohlepnog podudaranja između referentne i ciljne sekvence koristeći hash tablicu k-torki
 void greedy_matching(
     const vector<int>& ref_encoded,
     const vector<int>& target_encoded,
@@ -261,6 +285,7 @@ void greedy_matching(
     int nr = (int)ref_encoded.size();
     int nt = (int)target_encoded.size();
 
+    //ako je premalo podataka za formiranje k-torki, cijela ciljna sekvenca se smatra nepodudaranjem (mismatchom)
     if (k <= 0 || nr < k || nt < k) {
         if (nt > 0) {
             Mismatch mm;
@@ -271,9 +296,11 @@ void greedy_matching(
         return;
     }
 
+    //generiranje k-torki iz referentne sekvence
     KTupleData ref_tuples;
-    int ref_tuple_count = nr - k + 1;
+    int ref_tuple_count = nr - k + 1; //broj svih k-torki u referenci
 
+    //kodiranje prve k-torke referentne sekvence u 64-bitni cijeli broj
     uint64_t ref_value = 0;
 
     for (int j = k - 1; j >= 0; j--) {
@@ -284,18 +311,21 @@ void greedy_matching(
     ref_tuples.values.push_back(ref_value);
     ref_tuples.positions.push_back(0);
 
+    //kodiranje preostalih k-torki referentne sekvence koristeći klizni prozor i bitovne operacije
     int shift_bits = 2 * (k - 1);
 
     for (int i = 1; i < ref_tuple_count; i++) {
-        ref_value >>= 2;
-        ref_value += ((uint64_t)ref_encoded[i + k - 1] << shift_bits);
+        ref_value >>= 2; // uklanjanje najstarijeg elementa k-torke 
+        ref_value += ((uint64_t)ref_encoded[i + k - 1] << shift_bits); // dodavanje novog elementa k-torke na najviši bit
 
-        ref_tuples.values.push_back(ref_value);
-        ref_tuples.positions.push_back(i);
+        ref_tuples.values.push_back(ref_value); // pohrana nove kodirane k-torke
+        ref_tuples.positions.push_back(i); // pohrana početne pozicije nove k-torke u referentnoj sekvenci
     }
 
+    //generiranje hash tablice iz k-torki referentne sekvence
     HashTable table = generate_hash_table(ref_tuples.values, s);
 
+    
     int mask = s - 1;
 
     int i = 0;
@@ -1082,7 +1112,7 @@ int main(int argc, char* argv[])
     }
     else
     {
-        std::cout << "Unknown mode. Use output or benchmark.\n";
+        std::cout << "Unknown mode. Use output or totaltime.\n";
         return 1;
     }
 

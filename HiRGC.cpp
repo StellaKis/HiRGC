@@ -455,6 +455,7 @@ void rle_encode(const vector<size_t>& input, vector<int>& values, vector<int>& c
     counts.push_back(count);
 }
 
+// funkcija za izgradnju abecede ostalih znakova koji nisu A, C, G, T, na temelju vektora ostalih znakova (oth_ch) prikupljenih tijekom predobrade
 vector<char> build_other_alphabet(const vector<char>& oth_ch) {
     vector<char> alphabet;
 
@@ -476,6 +477,7 @@ vector<char> build_other_alphabet(const vector<char>& oth_ch) {
     return alphabet;
 }
 
+// funkcija za kodiranje ostalih znakova (koji nisu A, C, G, T) u cijele brojeve na temelju izgrađene abecede ostalih znakova
 vector<int> encode_other_chars(const vector<char>& oth_ch, const vector<char>& alphabet) {
     vector<int> codes;
 
@@ -498,6 +500,7 @@ vector<int> encode_other_chars(const vector<char>& oth_ch, const vector<char>& a
     return codes;
 }
 
+// funkcija za pisanje svih izlaza (matches, mismatches i pomoćnih podataka) u odgovarajuće datoteke koje će se zatim komprimirati
 void write_all_outputs(
     const string& matches_file,
     const string& mismatches_file,
@@ -507,7 +510,7 @@ void write_all_outputs(
     const FastaData& fasta,
     const PreprocessedData& prep
 ) {
-    vector<int> match_start;
+    vector<int> match_start; 
     vector<int> match_pos;
     vector<int> match_len;
 
@@ -531,7 +534,7 @@ void write_all_outputs(
     vector<char> oth_alphabet = build_other_alphabet(prep.oth_ch);
     vector<int> oth_codes = encode_other_chars(prep.oth_ch, oth_alphabet);
 
-    {
+    { //pohrana delta kodiranih matches u datoteku
         ofstream out(matches_file);
         if (!out.is_open()) throw runtime_error("Cannot open matches file");
 
@@ -541,7 +544,7 @@ void write_all_outputs(
         }
     }
 
-    {
+    { //pohrana mismatches u datoteku
         ofstream out(mismatches_file);
         if (!out.is_open()) throw runtime_error("Cannot open mismatches file");
 
@@ -551,33 +554,33 @@ void write_all_outputs(
         }
     }
 
-    {
+    {   //pohrana FASTA header-a (identifikatora), (RLE enkodirane) duljine redaka, (delta enkodiranih) informacija o malim slovima,  N intervala i ostale znakove u auxiliary datoteku
         ofstream out(aux_file);
         if (!out.is_open()) throw runtime_error("Cannot open auxiliary file");
 
         out << "ID\n" << fasta.id << "\n";
-
+        // pohrana RLE enkodiranih duljina redaka
         out << "SEQ_LEN_RLE\n" << seq_len_values.size() << "\n";
         for (int i = 0; i < (int)seq_len_values.size(); i++) {
             out << seq_len_values[i] << " " << seq_len_counts[i] << "\n";
         }
-
+        // pohrana delta enkodiranih informacija o malim slovima
         out << "LOWERCASE\n" << prep.low_pos.size() << "\n";
         for (int i = 0; i < (int)prep.low_pos.size(); i++) {
             out << low_pos_delta[i] << " " << prep.low_len[i] << "\n";
         }
-
+        // pohrana delta enkodiranih informacija o N intervalima
         out << "N_INTERVALS\n" << prep.N_pos.size() << "\n";
         for (int i = 0; i < (int)prep.N_pos.size(); i++) {
             out << N_pos_delta[i] << " " << prep.N_len[i] << "\n";
         }
-
+        // pohrana abecede ostalih znakova 
         out << "OTHER_ALPHABET\n" << oth_alphabet.size() << "\n";
         for (char c : oth_alphabet) {
             out << c << " ";
         }
         out << "\n";
-
+        // pohrana delta enkodiranih pozicija ostalih znakova i njihovih kodova u abecedi
         out << "OTHER_CHARS\n";
         out << prep.oth_pos.size() << "\n";
         for (int i = 0; i < (int)prep.oth_pos.size(); i++) {
@@ -586,6 +589,7 @@ void write_all_outputs(
     }
 }
 
+// komprimiranje izlaznih datoteka koristeći 7zip s PPMd algoritmom i određenom razinom kompresije = 5
 int compress_with_7zip(const string& archive_name, const string& matches_file, const string& mismatches_file, const string& aux_file) {
     string command = "7z a -t7z -m0=PPMd -mx=5 \"" + archive_name + "\" \"" + matches_file + "\" \"" + mismatches_file + "\" \"" + aux_file + "\"";
 
@@ -593,13 +597,14 @@ int compress_with_7zip(const string& archive_name, const string& matches_file, c
 }
 
 //dekompresija
-
+// funkcija za dekompresiju arhive koristeći 7zip, koja će se koristiti u funkciji HiRGC dekompresije 
 int extract_with_7zip(const string& archive_name, const string& output_dir) {
     string command = "7z x \"" + archive_name + "\" -o\"" + output_dir + "\" -y";
 
     return system(command.c_str());
 }
 
+// funkcija za dekodiranje delta kodiranih vrijednosti natrag u originalne vrijednosti, koristeći činjenicu da je prva vrijednost nepromijenjena, a svaka sljedeća se dobiva zbrajanjem prethodne dekodirane vrijednosti i trenutne delta vrijednosti
 vector<int> delta_decode(const vector<int>& delta) {
     vector<int> result;
 
@@ -608,15 +613,17 @@ vector<int> delta_decode(const vector<int>& delta) {
     result.push_back(delta[0]);
 
     for (int i = 1; i < (int)delta.size(); i++) {
-        result.push_back(result[i - 1] + delta[i]);
+        result.push_back(result[i - 1] + delta[i]); //svaka sljedeća vrijednost se dobiva zbrajanjem prethodne dekodirane vrijednosti i trenutne delta vrijednosti
     }
 
     return result;
 }
 
+// funkcija za dekodiranje RLE kodiranih vrijednosti natrag u originalne vrijednosti, dobivanje duljine redaka iz RLE zapisa
 vector<size_t> rle_decode(const vector<int>& values, const vector<int>& counts) {
     vector<size_t> result;
 
+    // svaka vrijednost se ponavlja onoliko puta koliko je navedeno u counts, i dodaje se u rezultat
     for (int i = 0; i < (int)values.size(); i++) {
         for (int j = 0; j < counts[i]; j++) {
             result.push_back(values[i]);
@@ -626,6 +633,7 @@ vector<size_t> rle_decode(const vector<int>& values, const vector<int>& counts) 
     return result;
 }
 
+// funkcija za dekodiranje ostalih znakova (koji nisu A, C, G, T) natrag u originalne znakove koristeći kodove i abecedu ostalih znakova
 vector<char> decode_other_chars(const vector<int>& codes, const vector<char>& alphabet) {
     vector<char> result;
 
@@ -636,6 +644,7 @@ vector<char> decode_other_chars(const vector<int>& codes, const vector<char>& al
     return result;
 }
 
+// funkcija za čitanje matches iz datoteka koje su prethodno dekomprimirane, kako bi se mogla rekonstruirati originalna sekvenca
 vector<Match> read_matches(const string& filename) {
     ifstream in(filename);
 
@@ -655,12 +664,12 @@ vector<Match> read_matches(const string& filename) {
            >> pos_delta[i]
            >> len[i];
     }
-
+    // dekodiranje delta kodiranih početnih pozicija i pozicija podudaranja natrag u originalne vrijednosti
     vector<int> start = delta_decode(start_delta);
     vector<int> pos = delta_decode(pos_delta);
 
     vector<Match> matches(n);
-
+    // popunjavanje vektora matches s dekodiranim vrijednostima početnih pozicija, pozicija podudaranja i duljina podudaranja
     for (int i = 0; i < n; i++) {
         matches[i].start_target = start[i];
         matches[i].pos = pos[i];
@@ -670,6 +679,7 @@ vector<Match> read_matches(const string& filename) {
     return matches;
 }
 
+// funkcija za čitanje mismatches iz datoteka koje su prethodno dekomprimirane, kako bi se mogla rekonstruirati originalna sekvenca
 vector<Mismatch> read_mismatches(const string& filename) {
     ifstream in(filename);
 
@@ -681,7 +691,7 @@ vector<Mismatch> read_mismatches(const string& filename) {
     in >> n;
 
     vector<Mismatch> mismatches(n);
-
+    // popunjavanje vektora mismatches s početnim pozicijama i nepodudarnim segmentima pročitanim iz datoteke
     for (int i = 0; i < n; i++) {
         in >> mismatches[i].start
            >> mismatches[i].seq;
@@ -690,6 +700,7 @@ vector<Mismatch> read_mismatches(const string& filename) {
     return mismatches;
 }
 
+// funkcija za čitanje pomoćnih podataka iz auxiliary datoteke koja je prethodno dekomprimirana, kako bi se mogla rekonstruirati originalna sekvenca
 AuxData read_auxiliary(const string& filename) {
 
     ifstream in(filename);
@@ -702,14 +713,12 @@ AuxData read_auxiliary(const string& filename) {
 
     string token;
 
-    // ID
+    // pohrana FASTA header-a (identifikatora) u pomoćnu strukturu AuxData
 
     in >> token; // ID
     in.ignore();
 
     getline(in, aux.id);
-
-    //SEQ_LEN_RLE
 
     in >> token;
 
@@ -718,11 +727,11 @@ AuxData read_auxiliary(const string& filename) {
 
     vector<int> values(rle_n);
     vector<int> counts(rle_n);
-
+    // pohrana RLE kodiranih duljina redaka iz auxilary datoteke u vektore values i counts
     for (int i = 0; i < rle_n; i++) {
         in >> values[i] >> counts[i];
     }
-
+    // dekodiranje RLE kodiranih vrijednosti natrag u originalne vrijednosti tj duljine redaka i pohrana u pomoćnu strukturu AuxData
     aux.seq_len = rle_decode(values, counts);
 
     //LOWERCASE
@@ -735,12 +744,12 @@ AuxData read_auxiliary(const string& filename) {
     vector<int> low_delta(low_n);
 
     aux.low_len.resize(low_n);
-
+    // pohrana delta kodiranih početnih pozicija intervala malih slova i njihovih duljina iz auxiliary datoteke u vektore low_delta i aux.low_len
     for (int i = 0; i < low_n; i++) {
         in >> low_delta[i]
            >> aux.low_len[i];
     }
-
+    // dekodiranje delta kodiranih početnih pozicija intervala malih slova natrag u originalne vrijednosti i pohrana u pomoćnu strukturu AuxData
     aux.low_pos = delta_decode(low_delta);
 
     //N_INTERVALS
@@ -753,12 +762,12 @@ AuxData read_auxiliary(const string& filename) {
     vector<int> N_delta(N_n);
 
     aux.N_len.resize(N_n);
-
+    // pohrana delta kodiranih početnih pozicija intervala slova 'N' i njihovih duljina iz auxiliary datoteke u vektore N_delta i aux.N_len
     for (int i = 0; i < N_n; i++) {
         in >> N_delta[i]
            >> aux.N_len[i];
     }
-
+    // dekodiranje delta kodiranih početnih pozicija intervala slova 'N' natrag u originalne vrijednosti i pohrana u pomoćnu strukturu AuxData
     aux.N_pos = delta_decode(N_delta);
 
     //OTHER_ALPHABET
@@ -769,7 +778,7 @@ AuxData read_auxiliary(const string& filename) {
     in >> alphabet_size;
 
     vector<char> alphabet(alphabet_size);
-
+    // pohrana abecede ostalih znakova koji nisu A, C, G, T iz auxiliary datoteke u vektor alphabet
     for (int i = 0; i < alphabet_size; i++) {
         in >> alphabet[i];
     }
@@ -783,41 +792,43 @@ AuxData read_auxiliary(const string& filename) {
 
     vector<int> oth_delta(oth_n);
     vector<int> oth_codes(oth_n);
-
+    // pohrana delta kodiranih pozicija ostalih znakova i njihovih kodova iz auxiliary datoteke u vektore oth_delta i oth_codes
     for (int i = 0; i < oth_n; i++) {
         in >> oth_delta[i]
            >> oth_codes[i];
     }
-
+    // dekodiranje delta kodiranih pozicija ostalih znakova natrag u originalne vrijednosti i pohrana u pomoćnu strukturu AuxData
     aux.oth_pos = delta_decode(oth_delta);
-
+    // dekodiranje kodova ostalih znakova natrag u originalne znakove koristeći izgrađenu abecedu ostalih znakova i pohrana u pomoćnu strukturu AuxData
     aux.oth_ch = decode_other_chars(oth_codes, alphabet);
 
     return aux;
 }
 
+// funkcija za rekonstrukciju stringa L3 koristeći informacije o podudaranjima i nepodudaranjima te kodiranu referentnu sekvencu
 string reconstruct_L3( const vector<Match>& matches, const vector<Mismatch>& mismatches, const vector<int>& ref_encoded) {
     string result;
 
     int m_idx = 0;
     int mm_idx = 0;
+    //
 
     while (m_idx < matches.size() ||
            mm_idx < mismatches.size()) {
-
+        //postoji li još nepodudaranja i pojavljuje li se trenutno nepodudaranje prije sljedećeg podudaranja ?
         if (mm_idx < mismatches.size() &&
             (m_idx >= matches.size() ||
              mismatches[mm_idx].start <
              matches[m_idx].start_target)) {
-
+            // ako da, dodaje se nepodudaranje u rezultat i pomiče se indeks nepodudaranja
             result += mismatches[mm_idx].seq;
             mm_idx++;
         }
         else {
-
+            //ako ne, dodaje se podudaranje u rezultat i pomiče se indeks podudaranja
             int ref_pos = matches[m_idx].pos;
             int len = matches[m_idx].len;
-
+            // dekodiranje podudaranja iz referentne sekvence koristeći kodiranu referentnu sekvencu (ref_encoded) i funkciju decode_base, te dodavanje dekodiranog podudaranja u rezultat
             for (int i = 0; i < len; i++) {
                 result += decode_base(
                     ref_encoded[ref_pos + i]
@@ -831,6 +842,7 @@ string reconstruct_L3( const vector<Match>& matches, const vector<Mismatch>& mis
     return result;
 }
 
+// funkcija za rekonstrukciju stringa L2 dodavanjem ostalih znakova na njihove originalne pozicije u stringu L3
 string reconstruct_L2(const string& L3, const vector<int>& oth_pos, const vector<char>& oth_ch) {
     string result = L3;
 
@@ -841,6 +853,7 @@ string reconstruct_L2(const string& L3, const vector<int>& oth_pos, const vector
     return result;
 }
 
+// funkcija za rekonstrukciju stringa L1 dodavanjem intervala slova 'N' na njihove originalne pozicije u stringu L2
 string reconstruct_L1(const string& L2, const vector<int>& N_pos, const vector<int>& N_len) {
     string result = L2;
 
@@ -851,6 +864,7 @@ string reconstruct_L1(const string& L2, const vector<int>& N_pos, const vector<i
     return result;
 }
 
+// funkcija za rekonstrukciju originalne sekvence dodavanjem intervala malih slova na njihove originalne pozicije u stringu L1
 string reconstruct_original(const string& L1, const vector<int>& low_pos, const vector<int>& low_len) {
     string result = L1;
 
@@ -863,20 +877,21 @@ string reconstruct_original(const string& L1, const vector<int>& low_pos, const 
     return result;
 }
 
+// funkcija za pisanje rekonstruirane sekvence u FASTA datoteku, koristeći informacije o originalnim duljinama redaka kako bi se sačuvala struktura FASTA datoteke
 void write_fasta( const string& filename, const string& id, const string& sequence, const vector<size_t>& seq_len) {
     ofstream out(filename);
-
+    // zapisivanje FASTA header-a (identifikatora) u datoteku
     out << ">" << id << "\n";
 
     int index = 0;
-
+    // pisanje sekvence u datoteku u redcima čije duljine su zadane u vektoru seq_len, kako bi se sačuvala struktura FASTA datoteke
     for (size_t len : seq_len) {
         out << sequence.substr(index, len) << "\n";
         index += len;
     }
 }
 
-
+// funkcija koja demonstrira cijeli proces kompresije i dekompresije, uključujući čitanje sekvenci, predobradu, pohlepno podudaranje, kodiranje, pisanje izlaza, kompresiju s 7zipom, dekompresiju i rekonstrukciju originalne sekvence
 void compression_and_decompression_with_output(const std::string& target_file, const std::string& ref_file) {
     try {
         
@@ -1042,6 +1057,7 @@ void compression_and_decompression_with_output(const std::string& target_file, c
     }
 }
 
+// funkcija koja pokreće samo proces kompresije, bez dekompresije i validacije, kako bi se moglo izmjeriti ukupno vrijeme kompresije
 void run_compression_only(const std::string& target_file, const std::string& ref_file){
     // Čitanje sekvenci iz FASTA datoteke i spajanje svih sekvenci u jednu cjelovitu sekvencu
     FastaData fasta = read_fasta(target_file);
@@ -1072,6 +1088,7 @@ void run_compression_only(const std::string& target_file, const std::string& ref
         throw runtime_error("7zip compression failed");
 }
 
+// glavna funkcija koja omogućuje pokretanje programa u dva načina: s izlazom (kompresija i dekompresija s validacijom) ili samo s mjerenjem ukupnog vremena kompresije
 int main(int argc, char* argv[])
 {
     if (argc < 4)

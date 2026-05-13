@@ -223,30 +223,6 @@ string decode_sequence(const vector<int>& encoded, int start, int end) {
     return result;
 }
 
-// maknuti? obrisati? 
-KTupleData generate_k_tuples(const vector<int>& encoded, int k) {
-    KTupleData data;
-
-    if (k <= 0 || k > encoded.size()) {
-        return data;
-    }
-
-    for (int i = 0; i <= encoded.size() - k; i++) {
-        uint64_t value = 0;
-        uint64_t power = 1;
-
-        for (int j = 0; j < k; j++) {
-            value += encoded[i + j] * power;
-            power *= 4;
-        }
-
-        data.values.push_back(value);
-        data.positions.push_back(i);
-    }
-
-    return data;
-}
-
 // Funkcija za generiranje hash tablice iz k-torki
 // Koristi jednostavnu metodu hashiranja (modulo s veličinom tablice) i lančano adresiranje za rješavanje kolizija
 HashTable generate_hash_table(const vector<uint64_t>& values, int s) {

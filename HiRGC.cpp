@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <chrono>
+#include <sys/resource.h>
 
 using namespace std;
 
@@ -867,6 +868,17 @@ void write_fasta( const string& filename, const string& id, const string& sequen
     }
 }
 
+// funkcija za mjerenje utroška memorije
+long get_total_peak_memory_kb() {
+    struct rusage self_usage;
+    struct rusage children_usage;
+
+    getrusage(RUSAGE_SELF, &self_usage);
+    getrusage(RUSAGE_CHILDREN, &children_usage);
+
+    return self_usage.ru_maxrss + children_usage.ru_maxrss;
+}
+
 // funkcija koja demonstrira cijeli proces kompresije i dekompresije, uključujući čitanje sekvenci, predobradu, pohlepno podudaranje, kodiranje, pisanje izlaza, kompresiju s 7zipom, dekompresiju i rekonstrukciju originalne sekvence
 void compression_and_decompression_with_output(const std::string& target_file, const std::string& ref_file) {
     try {
@@ -1033,6 +1045,89 @@ void compression_and_decompression_with_output(const std::string& target_file, c
     }
 }
 
+// funkcija koja pokreće samo proces dekompresije,
+void decompression (const std::string& target_file, const std::string& ref_file){
+
+        FastaData fasta_ref = read_fasta(ref_file);
+
+        string genome_ref = join_sequences(fasta_ref.sequences);
+
+        PreprocessedData clean_ref = preprocess_sequence(genome_ref);
+
+        vector<int> ref_encoded = to_binary(clean_ref.L3);
+
+        int extract_status = extract_with_7zip("compressed_output.7z","extracted");
+
+        if (extract_status != 0) {
+            throw runtime_error("7zip extraction failed");
+        }
+
+        cout << "Archive extracted." << endl;
+
+        vector<Match> decoded_matches = read_matches("extracted/matches.txt");
+
+        cout << "Matches loaded: " << decoded_matches.size() << endl;
+
+        vector<Mismatch> decoded_mismatches = read_mismatches("extracted/mismatches.txt");
+
+        cout << "Mismatches loaded: " << decoded_mismatches.size() << endl;
+
+        AuxData aux = read_auxiliary("extracted/auxiliary.txt");
+
+        cout << "Auxiliary loaded." << endl;
+
+        string reconstructed_L3 = reconstruct_L3(decoded_matches, decoded_mismatches, ref_encoded);
+
+        cout << "L3 reconstructed." << endl;
+
+        string reconstructed_L2 = reconstruct_L2(reconstructed_L3, aux.oth_pos, aux.oth_ch);
+
+        cout << "L2 reconstructed." << endl;
+
+        string reconstructed_L1 = reconstruct_L1(reconstructed_L2, aux.N_pos, aux.N_len);
+
+        cout << "L1 reconstructed." << endl;
+        
+        string reconstructed_genome = reconstruct_original(reconstructed_L1, aux.low_pos, aux.low_len);
+
+        cout << "Original genome reconstructed." << endl;
+
+        cout << "\nVALIDACIJA\n" << endl;
+
+        FastaData fasta = read_fasta(target_file);
+
+        string genome = join_sequences(fasta.sequences);
+
+        if (reconstructed_genome == genome) {
+            cout << "USPJEH: Dekompresija je tocna!" << endl;
+        }
+        else {
+            cout << "GRESKA: Sekvence nisu jednake!" << endl;
+
+            int min_len = min(reconstructed_genome.size(), genome.size());
+
+            for (int i = 0; i < min_len; i++) {
+
+                if (reconstructed_genome[i] != genome[i]) {
+
+                    cout << "Prva razlika na poziciji " << i << endl;
+
+                    cout << "Original: " << genome[i] << endl;
+
+                    cout << "Reconstructed: " << reconstructed_genome[i]<< endl;
+
+                    break;
+                }
+            }
+        }
+    
+        cout << "\nZAPIS REKONSTRUIRANOG FASTA" << endl;
+
+        write_fasta("reconstructed.fna", aux.id, reconstructed_genome, aux.seq_len);
+
+        cout << "Datoteka reconstructed.fna zapisana." << endl;
+}
+
 // funkcija koja pokreće samo proces kompresije, bez dekompresije i validacije, kako bi se moglo izmjeriti ukupno vrijeme kompresije
 void run_compression_only(const std::string& target_file, const std::string& ref_file){
     // Čitanje sekvenci iz FASTA datoteke i spajanje svih sekvenci u jednu cjelovitu sekvencu
@@ -1096,6 +1191,16 @@ int main(int argc, char* argv[])
         std::cout << "Total compression time: "
                   << elapsed.count()
                   << " seconds\n";
+        
+        long memory_kb = get_total_peak_memory_kb();
+
+        std::cout << "Peak total memory usage: "
+                << memory_kb / 1024.0 << " MB\n";
+    }
+    else if (mode == "decompression")
+    {
+        decompression(target_file, ref_file);
+
     }
     else
     {
